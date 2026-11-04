@@ -1,6 +1,7 @@
 import * as Sprite from "./sprite.js";
 import { KRYTERIA, PROG_PEWNE, PROG_MOZLIWE, przygotuj, propozycje, ocen, szukaj, ustawReguly } from "./dopasowanie.js";
 import * as Dzwieki from "./dzwieki.js";
+import { zrodlo, wykryj, pobierz, wyslij, eksportujPoprawki } from "./zrodlo.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, wlasc = {}, ...dzieci) => {
@@ -40,15 +41,7 @@ const stan = {
   biezacy: -1,
 };
 
-const api = {
-  async get(url) { const r = await fetch(url); return r.json(); },
-  async post(url, dane) {
-    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dane) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.blad || r.statusText);
-    return j;
-  },
-};
+const api = { get: pobierz, post: wyslij };
 
 const widoczne = () => stan.repa.filter((r) => !ust.ukryte.includes(r.id) && stan.dane.has(r.id));
 const etykieta = (r) => r.rodzaj === "ss14" ? "14" : r.rodzaj === "ss13" ? "13" : "…";
@@ -102,7 +95,13 @@ function rysujRepa() {
       },
     }, el("span", { klasa: "rodzaj " + r.rodzaj }, etykieta(r)), el("b", {}, r.nazwa), opis ? el("small", {}, opis) : null));
   }
-  box.append(el("button", { klasa: "przycisk glowny maly", onclick: otworzDodawanie }, "+ Dodaj repo"));
+  if (!zrodlo.statyczny) box.append(el("button", { klasa: "przycisk glowny maly", onclick: otworzDodawanie }, "+ Dodaj repo"));
+  else {
+    const kiedy = new Date(zrodlo.info.zbudowano).toLocaleString("pl", { dateStyle: "short", timeStyle: "short" });
+    box.append(el("span", { klasa: "online", title: "Wersja online odświeża się sama co 6 godzin. Własne repo i gałęzie: uruchom Portal lokalnie (uruchom.bat)." },
+      `Wersja online · dane z ${kiedy}`),
+      el("button", { klasa: "przycisk maly", title: "Twoje ręczne poprawki zapisują się w tej przeglądarce. Pobierz je jako reczne.json, żeby dodać je do repo Portalu.", onclick: () => eksportujPoprawki(stan.reczne) }, "Pobierz moje poprawki"));
+  }
 }
 
 function rysujZrodla() {
@@ -120,6 +119,8 @@ function pokazMenuRepo(repo, przycisk) {
   menu.replaceChildren(
     el("div", { klasa: "tytul" }, el("b", {}, repo.nazwa), el("small", {}, repo.zrodlo || repo.sciezka)),
     pozycja("Ukryj kolumnę", () => { ust.ukryte.push(repo.id); zapisz(); rysujRepa(); rysujZrodla(); przelicz(); }),
+    repo.github ? el("a", { href: repo.github, target: "_blank", rel: "noopener", klasa: "pozycja" }, "Otwórz repo na GitHubie") : null,
+    ...(zrodlo.statyczny ? [] : [
     i > 0 ? pozycja("◀ Przesuń w lewo", () => przesun(i, -1)) : null,
     i < stan.repa.length - 1 ? pozycja("Przesuń w prawo ▶", () => przesun(i, 1)) : null,
     pozycja("Zmień nazwę…", async () => {
@@ -135,6 +136,7 @@ function pokazMenuRepo(repo, przycisk) {
       stan.dane.delete(repo.id);
       await odswiezRepa(); rysujZrodla(); przelicz();
     }),
+    ]),
   );
   const r = przycisk.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 300))}px`;
@@ -196,28 +198,36 @@ $("#wybierzFolder").addEventListener("click", async () => {
 
 // ---------------------------------------------------------------- ręczne poprawki
 
-const klucz = (repoId, p) => `${repoId}|${p.id}`;
+// Repo w poprawkach nazywamy „właściciel/repo” z GitHuba, żeby te same poprawki działały
+// lokalnie i online (identyfikatory repo różnią się między komputerami).
+function staly(repoId) {
+  const r = stan.repa.find((x) => x.id === repoId);
+  return r?.github ? r.github.replace("https://github.com/", "") : repoId;
+}
+const klucz = (repoId, p) => `${staly(repoId)}|${p.id}`;
 
 function reczny(repoId, p, celId) {
   const r = stan.reczne.pary[klucz(repoId, p)];
-  if (!r || !(celId in r)) return undefined;
-  if (r[celId] === null) return null;
-  return stan.dane.get(celId)?.m.poId.get(r[celId]) ?? undefined;
+  const c = staly(celId);
+  if (!r || !(c in r)) return undefined;
+  if (r[c] === null) return null;
+  return stan.dane.get(celId)?.m.poId.get(r[c]) ?? undefined;
 }
 
 // pB: przedmiot, null = „brak odpowiednika”, undefined = wróć do automatu. Pary zapisujemy w obie strony.
 async function ustawReczny(repoA, pA, repoB, pB) {
   const pary = stan.reczne.pary;
   const kA = klucz(repoA, pA);
-  const stary = pary[kA]?.[repoB];
+  const sA = staly(repoA), sB = staly(repoB);
+  const stary = pary[kA]?.[sB];
   if (stary) {
-    const kS = `${repoB}|${stary}`;
-    if (pary[kS]) { delete pary[kS][repoA]; if (!Object.keys(pary[kS]).length) delete pary[kS]; }
+    const kS = `${sB}|${stary}`;
+    if (pary[kS]) { delete pary[kS][sA]; if (!Object.keys(pary[kS]).length) delete pary[kS]; }
   }
-  if (pB === undefined) { if (pary[kA]) delete pary[kA][repoB]; }
+  if (pB === undefined) { if (pary[kA]) delete pary[kA][sB]; }
   else {
-    (pary[kA] ||= {})[repoB] = pB ? pB.id : null;
-    if (pB) (pary[klucz(repoB, pB)] ||= {})[repoA] = pA.id;
+    (pary[kA] ||= {})[sB] = pB ? pB.id : null;
+    if (pB) (pary[klucz(repoB, pB)] ||= {})[sA] = pA.id;
   }
   if (pary[kA] && !Object.keys(pary[kA]).length) delete pary[kA];
   await api.post("/api/reczne", stan.reczne);
@@ -629,7 +639,8 @@ window.__repoInfo = (id) => stan.dane.get(id);
 const SZUKAJ = { sprite: "Szukaj przedmiotu, np. crowbar, captain, /obj/item/gun", dzwieki: "Szukaj dźwięku, np. airlock, gunshot, weapons/laser" };
 function ustawZakladke(z) {
   ust.zakladka = z; zapisz();
-  document.body.className = "zakladka-" + z;
+  document.body.classList.remove("zakladka-sprite", "zakladka-dzwieki");
+  document.body.classList.add("zakladka-" + z);
   document.querySelectorAll("#zakladki button").forEach((b) => b.classList.toggle("aktywny", b.dataset.zakladka === z));
   $("#szukaj").placeholder = SZUKAJ[z];
   przelicz();
@@ -639,7 +650,7 @@ document.querySelectorAll("#zakladki button").forEach((b) => b.addEventListener(
   $("#szukaj").value = "";
   ustawZakladke(b.dataset.zakladka);
 }));
-document.body.className = "zakladka-" + ust.zakladka;
+document.body.classList.add("zakladka-" + ust.zakladka);
 document.querySelectorAll("#zakladki button").forEach((b) => b.classList.toggle("aktywny", b.dataset.zakladka === ust.zakladka));
 $("#szukaj").placeholder = SZUKAJ[ust.zakladka];
 $("#kategoria").value = ust.kategoria;
@@ -655,6 +666,8 @@ $("#tylkoZOdp").addEventListener("change", (e) => { ust.tylkoZOdp = e.target.che
 // ---------------------------------------------------------------- start
 
 (async () => {
+  await wykryj();
+  document.body.classList.toggle("statyczny", zrodlo.statyczny);
   const [reguly, reczne] = await Promise.all([api.get("/api/sciezki"), api.get("/api/reczne")]);
   ustawReguly(reguly);
   stan.reczne = reczne && reczne.pary ? reczne : { pary: {} };

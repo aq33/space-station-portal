@@ -107,7 +107,9 @@ input[type="checkbox"] { accent-color: var(--akcent); margin: 0; }
 .menu.plywajace .tytul { padding: 6px 8px 8px; border-bottom: 1px solid var(--linia); margin-bottom: 4px; display: flex; flex-direction: column; }
 .menu.plywajace .tytul small { color: var(--szary); font-size: 11px; word-break: break-all; }
 .menu.plywajace button { background: none; border: 0; text-align: left; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
-.menu.plywajace button:hover { background: var(--panel2); }
+.menu.plywajace button:hover, .menu.plywajace a:hover { background: var(--panel2); }
+.menu.plywajace a { display: block; padding: 6px 8px; border-radius: 6px; color: var(--tekst); text-decoration: none; }
+#repa .online { color: var(--szary); font-size: 12px; margin-left: auto; }
 
 #repa {
   display: flex;

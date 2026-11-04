@@ -39,9 +39,7 @@ export function klucz(p) {
 
 const pien = (p) => p.toLowerCase().replace(/^.*\//, "").replace(/\.[a-z0-9]+$/, "").replace(/[^a-z0-9]/g, "");
 
-function urlPliku(repo, sciezka) {
-  return `/plik/${repo}/${sciezka.split("/").map(encodeURIComponent).join("/")}`;
-}
+import { urlPliku, pobierz } from "./zrodlo.js";
 
 function rozmiar(b) {
   return b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
@@ -55,7 +53,7 @@ function czas(t) {
 async function wczytaj(r) {
   if (dane.has(r.id)) return;
   if (!ladowane.has(r.id)) {
-    ladowane.set(r.id, fetch(`/api/dzwieki/${r.id}`).then((x) => (x.ok ? x.json() : { dzwieki: [], brakujace: [], brak: true })).then((d) => {
+    ladowane.set(r.id, pobierz(`/api/dzwieki/${r.id}`).catch(() => ({ dzwieki: [], brakujace: [], brak: true })).then((d) => {
       for (const s of d.dzwieki) { s._k = klucz(s.p); s._pien = pien(s.p); }
       dane.set(r.id, d);
     }));

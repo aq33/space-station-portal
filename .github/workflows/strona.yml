@@ -1,0 +1,47 @@
+# Buduje wersję online Portalu i publikuje ją na GitHub Pages.
+# Repo do porównania są w strona.json. Strona czyta sprite'y i dźwięki prosto z GitHuba
+# z tych samych commitów, z których CI zbudowało indeksy.
+name: Strona
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 */6 * * *"   # co 6 godzin: świeże indeksy wszystkich repo
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publikuj:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment:
+      name: github-pages
+      url: ${{ steps.wdrozenie.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pakiety
+        run: pip install pillow numpy pyyaml
+
+      - name: Indeksy sprite'ów i dźwięków
+        run: python buduj_strone.py --wyjscie _site --robocze "$RUNNER_TEMP/klony" --usun-klony
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: wdrozenie
+        uses: actions/deploy-pages@v4

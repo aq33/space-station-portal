@@ -1,14 +1,27 @@
 # Space Station Portal
 
-Lokalna strona do porównywania serwerów Space Station 13 i 14 między sobą:
+Strona do porównywania serwerów Space Station 13 i 14 między sobą:
 
 - **Sprite'y** – ten sam przedmiot z kilku repozytoriów obok siebie, z animacją, w rękach i na postaci.
 - **Dźwięki** – te same dźwięki w różnych repo, nowe dźwięki danego serwera i miejsca w kodzie, gdzie ich używa.
 
 Działa z repo SS13 (BYOND: kod DM, `.dmi`, `sound/`) i SS14 (RobustToolbox: prototypy YAML, `.rsi`, `Resources/Audio`).
-Wszystko dzieje się lokalnie. Do internetu łączy się tylko przy pobieraniu repo z GitHuba.
 
-## Uruchomienie
+## Z linka (bez instalowania)
+
+**https://aq33.github.io/space-station-portal/**
+
+Wersja online porównuje repo wpisane w [`strona.json`](strona.json): Aquilę, tg, Paradise, Goona, Polonium i Yogstation.
+Workflow `.github/workflows/strona.yml` co 6 godzin pobiera ich najnowsze commity, buduje indeksy i publikuje stronę.
+Sprite'y i dźwięki strona czyta prosto z GitHuba z tych samych commitów.
+
+Różnice względem wersji lokalnej:
+- lista repo jest stała (żeby dodać repo, dopisz je do `strona.json`),
+- ręczne poprawki dopasowań zapisują się w przeglądarce. „Pobierz moje poprawki” daje plik `reczne.json`, który można wrzucić do tego repo. Wtedy zobaczą je wszyscy.
+
+## Uruchomienie lokalne
+
+Wersja lokalna pozwala dodawać własne repo, gałęzie i niezacommitowane zmiany.
 
 Potrzebny jest Python 3.10+ z pakietami Pillow, numpy i PyYAML (`pip install pillow numpy pyyaml`) oraz git.
 

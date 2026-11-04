@@ -81,9 +81,7 @@ async function pobierz(url) {
   return r;
 }
 
-function urlPliku(repo, sciezka) {
-  return `/plik/${repo}/${sciezka.split("/").map(encodeURIComponent).join("/")}`;
-}
+import { urlPliku } from "./zrodlo.js";
 
 async function wczytajDmi(repo, sciezka) {
   const bufor = await (await pobierz(urlPliku(repo, sciezka))).arrayBuffer();

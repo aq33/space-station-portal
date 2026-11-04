@@ -1,0 +1,11 @@
+{
+  "opis": "Repozytoria w wersji online Portalu. CI pobiera je, buduje indeksy i publikuje na GitHub Pages.",
+  "repa": [
+    { "nazwa": "Aquila", "url": "https://github.com/aq33/AquilaStation" },
+    { "nazwa": "tg", "url": "https://github.com/tgstation/tgstation" },
+    { "nazwa": "Paradise", "url": "https://github.com/ParadiseSS13/Paradise" },
+    { "nazwa": "Goon", "url": "https://github.com/goonstation/goonstation" },
+    { "nazwa": "Polonium (SS14)", "url": "https://github.com/polonium14/polonium-station" },
+    { "nazwa": "Yogstation", "url": "https://github.com/yogstation13/Yogstation" }
+  ]
+}
