@@ -1,4 +1,4 @@
-"""Lokalny serwer porównywarki sprite'ów.
+"""Lokalny serwer Space Station Portal – porównywarki sprite'ów i dźwięków.
 
 Trzyma listę repozytoriów (repozytoria.json), buduje w tle indeks sprite'ów
 każdego z nich (SS13: kod DM + .dmi, SS14: prototypy YAML + .rsi) i serwuje
@@ -26,6 +26,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
+import dzwieki
 import ekstraktor
 import indeks_ss13
 import indeks_ss14
@@ -41,10 +42,12 @@ RECZNE = os.path.join(TUTAJ, "reczne.json")
 WERSJA_INDEKSU = 2
 
 # Wzorce rzadkiego checkoutu przy klonowaniu z GitHuba: tylko kod i grafika.
-WZORCE_SS13 = ["/*", "!/sound/", "!/tgui/", "!/html/", "!/SQL/", "!/tools/*", "/tools/UpdatePaths/",
+WZORCE_SS13 = ["/*", "!/tgui/", "!/html/", "!/SQL/", "!/tools/*", "/tools/UpdatePaths/",
                "!/node_modules/", "!/bin/", "!/config/", "!/strings/",
-               "!*.ogg", "!*.wav", "!*.mp3", "!*.dmm", "!*.mid", "!*.dll", "!*.pdb", "!*.so"]
-WZORCE_SS14 = ["/Resources/Prototypes/", "/Resources/Textures/"]
+               "!*.dmm", "!*.dll", "!*.pdb", "!*.so"]
+WZORCE_SS14 = ["/Resources/Prototypes/", "/Resources/Textures/", "/Resources/Audio/", "/Content.*/**/*.cs"]
+TYPY_PLIKOW = {".dmi": "image/png", ".png": "image/png", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav",
+               ".mp3": "audio/mpeg", ".flac": "audio/flac", ".mid": "audio/midi", ".json": "application/json"}
 
 blokada = threading.Lock()
 kolejka = queue.Queue()
@@ -100,16 +103,69 @@ def plik_indeksu(rid):
     return os.path.join(DANE, "indeks-%s.json.gz" % rid)
 
 
+def plik_dzwiekow(rid):
+    return os.path.join(DANE, "dzwieki-%s.json.gz" % rid)
+
+
+def adres_github(repo):
+    """https://github.com/właściciel/repo (do linków „pokaż w kodzie”) albo None.
+
+    Bierze remote origin, a gdy go nie ma – pierwszy remote wskazujący na GitHuba (np. „aq33”).
+    """
+    wzor = re.compile(r"^(?:https://github\.com/|git@github\.com:)([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
+    adresy = [repo["zrodlo"]] if repo.get("zrodlo") else []
+    if not adresy:
+        try:
+            w = subprocess.run(["git", "-C", repo["sciezka"], "remote", "-v"], capture_output=True, text=True, timeout=10,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            linie = [l.split() for l in w.stdout.splitlines() if l.strip()] if w.returncode == 0 else []
+            linie.sort(key=lambda l: l[0] != "origin")
+            adresy = [l[1] for l in linie if len(l) > 1]
+        except (OSError, subprocess.SubprocessError):
+            pass
+    for url in adresy:
+        m = wzor.match(url)
+        if m:
+            return "https://github.com/%s/%s" % (m.group(1), m.group(2))
+    return None
+
+
+def sha_na_githubie(repo):
+    """Commit, który na pewno jest na GitHubie: wspólny przodek HEAD i gałęzi zdalnej (lokalne commity tam nie istnieją)."""
+    if repo.get("zrodlo"):
+        return None   # nasz klon: HEAD pochodzi z GitHuba
+    sciezka = repo["sciezka"]
+    flagi = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        zdalne = subprocess.run(["git", "-C", sciezka, "for-each-ref", "--format=%(refname:short)", "refs/remotes"],
+                                capture_output=True, text=True, timeout=10, creationflags=flagi).stdout.split()
+        # najpierw gałęzie główne (origin/HEAD, aq33/master…), „aq33” samo to skrót od aq33/HEAD
+        glowne = [r for r in zdalne if "/" not in r or r.endswith(("/HEAD", "/master", "/main"))]
+        glowne.sort(key=lambda r: not r.startswith("origin"))
+        for ref in glowne[:4]:
+            w = subprocess.run(["git", "-C", sciezka, "merge-base", "HEAD", ref], capture_output=True, text=True, timeout=20, creationflags=flagi)
+            if w.returncode == 0 and w.stdout.strip():
+                return w.stdout.strip()
+        # płytki klon: wspólnego przodka nie widać, więc bierzemy czubek gałęzi głównej
+        for ref in glowne[:4]:
+            w = subprocess.run(["git", "-C", sciezka, "rev-parse", ref], capture_output=True, text=True, timeout=10, creationflags=flagi)
+            if w.returncode == 0 and w.stdout.strip():
+                return w.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 def odcisk(repo):
     """Wersja kodu + wersja indeksera: zmiana któregoś unieważnia zapisany indeks."""
     g = wersja_git(repo["sciezka"])
-    narzedzia = max(os.path.getmtime(m.__file__) for m in (ekstraktor, indeks_ss13, indeks_ss14, obraz))
+    narzedzia = max(os.path.getmtime(m.__file__) for m in (ekstraktor, indeks_ss13, indeks_ss14, obraz, dzwieki))
     return "%s|%d|%d" % (g["sha"] if g else "brak-git", int(narzedzia), WERSJA_INDEKSU)
 
 
 def aktualny(repo):
     p = plik_indeksu(repo["id"])
-    if not os.path.exists(p):
+    if not os.path.exists(p) or not os.path.exists(plik_dzwiekow(repo["id"])):
         return False
     try:
         with gzip.open(p, "rt", encoding="utf-8") as f:
@@ -134,7 +190,12 @@ def buduj(repo):
         odc = odcisk(repo)
         dane = indeks_ss13.zbuduj(dme, postep) if rodzaj == "ss13" else indeks_ss14.zbuduj(repo["sciezka"], postep)
         dane["wersja"] = wersja_git(repo["sciezka"])
+        dane["github"] = adres_github(repo)
         os.makedirs(DANE, exist_ok=True)
+        # Dźwięki w osobnym pliku (zapisany przed głównym indeksem, który świadczy o kompletności).
+        dz = dzwieki.zbuduj(repo["sciezka"], rodzaj, postep)
+        with gzip.open(plik_dzwiekow(rid), "wt", encoding="utf-8", compresslevel=6) as f:
+            f.write(json.dumps(dz, ensure_ascii=False, separators=(",", ":")))
         tymczasowy = plik_indeksu(rid) + ".tmp"
         # Pierwsza linia to nagłówek z odciskiem – da się go przeczytać bez całego pliku.
         with gzip.open(tymczasowy, "wt", encoding="utf-8", compresslevel=6) as f:
@@ -173,7 +234,7 @@ def git(argumenty, postep=None, cwd=None):
 
 
 def klonuj(repo, aktualizuj=False):
-    """Rzadki klon z GitHuba do folderu repo/ (tylko kod i grafika, bez dźwięków i map)."""
+    """Rzadki klon z GitHuba do folderu repo/ (kod, grafika i dźwięki, bez map i narzędzi)."""
     rid = repo["id"]
     cel = repo["sciezka"]
 
@@ -184,6 +245,10 @@ def klonuj(repo, aktualizuj=False):
         stan[rid] = {"etap": "aktualizuję z GitHuba", "blad": None}
         git(["-C", cel, "fetch", "--depth", "1", "--filter=blob:none", "--progress", "origin"], postep)
         git(["-C", cel, "reset", "--hard", "FETCH_HEAD"], postep)
+        # wzorce mogły się zmienić od klonowania (np. dźwięki doszły później)
+        wzorce = WZORCE_SS14 if repo.get("rodzaj") == "ss14" else WZORCE_SS13
+        stan[rid]["etap"] = "dociągam brakujące pliki"
+        git(["-C", cel, "sparse-checkout", "set", "--no-cone", *wzorce], postep)
         return
     stan[rid] = {"etap": "pobieram z GitHuba", "blad": None}
     os.makedirs(KLONY, exist_ok=True)
@@ -291,9 +356,15 @@ def nazwa_z_url(url):
     return m.group(1), m.group(2), m.group(3)
 
 
+pamiec_github = {}
+
+
 def opis_repo(r):
     s = stan.get(r["id"]) or {"etap": "gotowe" if os.path.exists(plik_indeksu(r["id"])) else "brak", "blad": None}
-    return dict(r, **{"stan": s})
+    if r["id"] not in pamiec_github or s.get("etap") != "gotowe":
+        pamiec_github[r["id"]] = (adres_github(r), sha_na_githubie(r))
+    url, sha = pamiec_github[r["id"]]
+    return dict(r, **{"stan": s, "github": url, "github_sha": sha})
 
 
 def propozycje():
@@ -366,6 +437,12 @@ class Obsluga(BaseHTTPRequestHandler):
             return self._json(reguly_sciezek())
         if sciezka == "/api/reczne":
             return self._json(wczytaj_reczne())
+        if sciezka.startswith("/api/dzwieki/"):
+            p = plik_dzwiekow(sciezka.rsplit("/", 1)[1])
+            if not os.path.exists(p):
+                return self._json({"blad": "brak indeksu dźwięków"}, 404)
+            with open(p, "rb") as f:
+                return self._wyslij(200, f.read(), naglowki={"Content-Encoding": "gzip", "Cache-Control": "no-store"})
         if sciezka.startswith("/api/indeks/"):
             rid = sciezka.rsplit("/", 1)[1]
             p = plik_indeksu(rid)
@@ -387,7 +464,7 @@ class Obsluga(BaseHTTPRequestHandler):
                 return self._json({"blad": "brak pliku"}, 404)
             with open(plik, "rb") as f:
                 tresc = f.read()
-            typ = "image/png" if plik.endswith((".dmi", ".png")) else (mimetypes.guess_type(plik)[0] or "application/octet-stream")
+            typ = TYPY_PLIKOW.get(os.path.splitext(plik)[1].lower()) or mimetypes.guess_type(plik)[0] or "application/octet-stream"
             return self._wyslij(200, tresc, typ, {"Cache-Control": "max-age=60"})
         # interfejs
         if sciezka == "/":
@@ -475,11 +552,12 @@ class Obsluga(BaseHTTPRequestHandler):
             for r in stara:
                 if r["id"] == dane.get("id") and r.get("zrodlo"):
                     try:
-                        usun_klon(r["sciezka"])   # klon pobrany przez porównywarkę
+                        usun_klon(r["sciezka"])   # klon pobrany przez Portal
                     except OSError:
                         pass
             try:
                 os.remove(plik_indeksu(str(dane.get("id"))))
+                os.remove(plik_dzwiekow(str(dane.get("id"))))
             except OSError:
                 pass
             return self._json({"ok": True})
@@ -487,7 +565,7 @@ class Obsluga(BaseHTTPRequestHandler):
 
 
 def main():
-    a = argparse.ArgumentParser(description="Porównywarka sprite'ów SS13/SS14")
+    a = argparse.ArgumentParser(description="Space Station Portal: sprite'y i dźwięki SS13/SS14")
     a.add_argument("--port", type=int, default=8615)
     a.add_argument("--bez-przegladarki", action="store_true")
     arg = a.parse_args()
@@ -504,7 +582,7 @@ def main():
     except OSError:
         pass
     adres = "http://127.0.0.1:%d/" % arg.port
-    print("Porównywarka działa: %s" % adres, flush=True)
+    print("Space Station Portal działa: %s" % adres, flush=True)
     if not arg.bez_przegladarki:
         webbrowser.open(adres)
     try:

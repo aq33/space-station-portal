@@ -317,6 +317,53 @@ label.grupa { gap: 6px; color: var(--szary); }
 .opis small { color: var(--szary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .powody { color: var(--zielony); font-size: 11px; white-space: nowrap; }
 
+/* ---------------------------------------------------------------- zakładki i dźwięki */
+
+body.zakladka-sprite .tylko-dzwieki, body.zakladka-dzwieki .tylko-sprite { display: none !important; }
+#zakladki button { padding: 5px 14px; }
+span.tylko-dzwieki { display: flex; gap: 6px; align-items: center; color: var(--szary); font-size: 13px; }
+#dzTryb { max-width: 260px; }
+#dzRepoEtykieta { display: flex; gap: 6px; align-items: center; }
+#dzRepoEtykieta[hidden] { display: none; }
+.tabela { flex: 1; overflow: auto; }
+.stopka { padding: 16px; text-align: center; color: var(--szary); }
+
+.wiersz.dzwiek { grid-template-columns: var(--pierwsza) repeat(var(--kolumny), minmax(130px, 1fr)); }
+.wiersz.dzwiek.otwarty { background: #20242c; }
+#dzwiekiNaglowki { grid-template-columns: var(--pierwsza) repeat(var(--kolumny), minmax(130px, 1fr)); }
+.kom.dz { flex-direction: row; gap: 8px; padding: 8px 10px; justify-content: flex-start; }
+.kom.dz .dane { display: flex; flex-direction: column; font-size: 12px; min-width: 0; }
+.kom.dz .dane small { color: var(--szary); font-size: 11px; }
+.kom.dz .dane small.nieuzywany { color: var(--zolty); }
+.graj {
+  width: 30px; height: 30px; flex: none; border-radius: 50%;
+  border: 1px solid var(--linia); background: var(--panel2); cursor: pointer; font-size: 12px;
+}
+.graj:hover { border-color: var(--akcent); }
+.graj.gra { background: var(--akcent); color: #08111f; border-color: var(--akcent); }
+
+.rozwiniecie {
+  display: flex; gap: 10px; padding: 12px 14px; overflow-x: auto;
+  background: #1a1d23; border-bottom: 1px solid var(--linia);
+}
+.karta-dz {
+  flex: 1 0 280px; max-width: 420px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel); border: 1px solid var(--linia); border-radius: 10px; padding: 0 10px 10px; overflow: hidden;
+}
+.karta-dz header { display: flex; gap: 6px; align-items: center; margin: 0 -10px; padding: 7px 10px; background: var(--panel2); border-bottom: 1px solid var(--linia); }
+.karta-dz audio { width: 100%; height: 34px; margin-top: 6px; }
+.karta-dz h4 { margin: 4px 0 0; font-size: 13px; }
+.karta-dz p { margin: 0; font-size: 12px; }
+.fala { width: 100%; height: 40px; background: #111317; border-radius: 6px; }
+.szary { color: var(--szary); }
+.licencja a, .uzycia a { color: var(--akcent); }
+.uzycia { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; font-size: 12px; }
+.uzycia li { display: flex; flex-direction: column; gap: 1px; }
+.uzycia .linia { color: var(--szary); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uzycia .przez { color: var(--fiolet); }
+.wiersz.brakujace, #dzwiekiNaglowki.brakujace { grid-template-columns: minmax(240px, 1fr) 2fr; cursor: default; }
+.kom.lewo { align-items: stretch; padding: 8px 12px; }
+
 @media (max-width: 800px) {
   :root { --pierwsza: 140px; }
   #gora { gap: 8px; }

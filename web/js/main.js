@@ -1,5 +1,6 @@
 import * as Sprite from "./sprite.js";
 import { KRYTERIA, PROG_PEWNE, PROG_MOZLIWE, przygotuj, propozycje, ocen, szukaj, ustawReguly } from "./dopasowanie.js";
+import * as Dzwieki from "./dzwieki.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, wlasc = {}, ...dzieci) => {
@@ -19,7 +20,7 @@ const ZAPIS = "porownywarka:v2";
 const domyslne = {
   kryteria: { wyglad: true, nazwa: true, opis: true, sciezka: true },
   widok: "s", kier: 0, zoom: 5, tlo: "szachownica", anim: true, ukryte: [],
-  kategoria: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "",
+  kategoria: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "", zakladka: "sprite",
 };
 let ust;
 try { ust = Object.assign({}, domyslne, JSON.parse(localStorage.getItem(ZAPIS)) || {}); } catch { ust = { ...domyslne }; }
@@ -128,8 +129,8 @@ function pokazMenuRepo(repo, przycisk) {
     repo.zrodlo
       ? pozycja("Aktualizuj z GitHuba", async () => { await api.post("/api/odswiez", { id: repo.id, aktualizuj: true }); stan.dane.delete(repo.id); await odswiezRepa(); przelicz(); })
       : pozycja("Przeczytaj od nowa", async () => { await api.post("/api/odswiez", { id: repo.id }); stan.dane.delete(repo.id); await odswiezRepa(); przelicz(); }),
-    pozycja(repo.zrodlo ? "Usuń (razem z pobranym klonem)" : "Usuń z porównywarki", async () => {
-      if (!confirm(repo.zrodlo ? `Usunąć „${repo.nazwa}” i pobrany klon z folderu repo/?` : `Usunąć „${repo.nazwa}” z porównywarki? Pliki repo zostają na dysku.`)) return;
+    pozycja(repo.zrodlo ? "Usuń (razem z pobranym klonem)" : "Usuń z Portalu", async () => {
+      if (!confirm(repo.zrodlo ? `Usunąć „${repo.nazwa}” i pobrany klon z folderu repo/?` : `Usunąć „${repo.nazwa}” z Portalu? Pliki repo zostają na dysku.`)) return;
       await api.post("/api/usun", { id: repo.id });
       stan.dane.delete(repo.id);
       await odswiezRepa(); rysujZrodla(); przelicz();
@@ -262,6 +263,10 @@ function* generujWiersze() {
 }
 
 function przelicz() {
+  if (ust.zakladka === "dzwieki") {
+    if (widoczne().length) Dzwieki.pokaz(widoczne());
+    return;
+  }
   stan.wiersze = [];
   stan.generator = generujWiersze();
   stan.koniec = false;
@@ -614,7 +619,29 @@ for (const [k, nazwa] of Object.entries(KRYTERIA)) {
   $("#kryteria").append(el("label", { klasa: "przelacznik" }, pole, nazwa));
 }
 
-$("#szukaj").addEventListener("input", () => { clearTimeout(przelicz._t); przelicz._t = setTimeout(przelicz, 200); });
+$("#szukaj").addEventListener("input", () => {
+  clearTimeout(przelicz._t);
+  przelicz._t = setTimeout(() => (ust.zakladka === "dzwieki" ? Dzwieki.szukajZmienione() : przelicz()), 200);
+});
+
+// Zakładki: sprite'y i dźwięki
+window.__repoInfo = (id) => stan.dane.get(id);
+const SZUKAJ = { sprite: "Szukaj przedmiotu, np. crowbar, captain, /obj/item/gun", dzwieki: "Szukaj dźwięku, np. airlock, gunshot, weapons/laser" };
+function ustawZakladke(z) {
+  ust.zakladka = z; zapisz();
+  document.body.className = "zakladka-" + z;
+  document.querySelectorAll("#zakladki button").forEach((b) => b.classList.toggle("aktywny", b.dataset.zakladka === z));
+  $("#szukaj").placeholder = SZUKAJ[z];
+  przelicz();
+}
+document.querySelectorAll("#zakladki button").forEach((b) => b.addEventListener("click", () => {
+  if (b.dataset.zakladka === ust.zakladka) return;
+  $("#szukaj").value = "";
+  ustawZakladke(b.dataset.zakladka);
+}));
+document.body.className = "zakladka-" + ust.zakladka;
+document.querySelectorAll("#zakladki button").forEach((b) => b.classList.toggle("aktywny", b.dataset.zakladka === ust.zakladka));
+$("#szukaj").placeholder = SZUKAJ[ust.zakladka];
 $("#kategoria").value = ust.kategoria;
 $("#kategoria").addEventListener("change", (e) => { ust.kategoria = e.target.value; zapisz(); przelicz(); });
 $("#zrodloWierszy").addEventListener("change", (e) => { ust.zrodloWierszy = e.target.value; zapisz(); przelicz(); });

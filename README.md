@@ -1,7 +1,11 @@
-# Porównywarka sprite'ów SS13/SS14
+# Space Station Portal
 
-Strona w przeglądarce, która pokazuje obok siebie sprite'y tego samego przedmiotu z kilku repozytoriów.
-Działa z repo SS13 (BYOND: kod DM + `.dmi`) i SS14 (RobustToolbox: prototypy YAML + `.rsi`).
+Lokalna strona do porównywania serwerów Space Station 13 i 14 między sobą:
+
+- **Sprite'y** – ten sam przedmiot z kilku repozytoriów obok siebie, z animacją, w rękach i na postaci.
+- **Dźwięki** – te same dźwięki w różnych repo, nowe dźwięki danego serwera i miejsca w kodzie, gdzie ich używa.
+
+Działa z repo SS13 (BYOND: kod DM, `.dmi`, `sound/`) i SS14 (RobustToolbox: prototypy YAML, `.rsi`, `Resources/Audio`).
 Wszystko dzieje się lokalnie. Do internetu łączy się tylko przy pobieraniu repo z GitHuba.
 
 ## Uruchomienie
@@ -34,7 +38,7 @@ Kliknięcie repo na pasku ukrywa jego kolumnę. Menu `⋯` w nagłówku kolumny:
 Przycisk **+ Dodaj repo**:
 
 - **Z GitHuba**: wklej link, np. `https://github.com/tgstation/tgstation` albo `…/tree/nazwa-gałęzi`.
-  Porównywarka zrobi rzadki klon do folderu `repo/` z samym kodem i grafiką (bez dźwięków, map i tgui).
+  Portal zrobi rzadki klon do folderu `repo/` z kodem, grafiką i dźwiękami (bez map, tgui i narzędzi).
   Potem „Aktualizuj z GitHuba” w menu kolumny pobiera najnowszy commit.
 - **Z dysku**: „Wybierz folder…” otwiera systemowe okno wyboru. Możesz też wpisać ścieżkę albo kliknąć jedną z podpowiedzi.
 
@@ -53,6 +57,26 @@ Każdy kandydat dostaje punkty za wszystkie włączone kryteria naraz:
 | ścieżka | 40 za tę samą, do 8 za wspólne człony | ścieżka typu sprowadzona regułami UpdatePaths (`sciezki.py`) w obie strony, bez `/weapon` i `/device` |
 
 Do tego +4 za tę samą kategorię. Od 45 punktów dopasowanie jest „pewne”, od 25 „możliwe”.
+
+## Dźwięki
+
+Zakładka **Dźwięki** u góry. Wiersz to jeden dźwięk, kolumna to repo. ▶ odtwarza plik, pod spodem jest długość i liczba użyć w kodzie.
+Kliknięcie wiersza pokazuje odtwarzacz, kształt fali, licencję (SS14: `attributions.yml`) i listę miejsc użycia.
+Każde miejsce to link do pliku i linii na GitHubie.
+
+Lista „Wszystkie dźwięki” pozwala zawęzić widok:
+
+| Widok | Co pokazuje |
+|---|---|
+| Nowe – tylko w jednym repo | dźwięki, których nie ma w żadnym innym widocznym repo |
+| Różne wersje tego samego | ta sama ścieżka albo nazwa pliku, ale inna zawartość |
+| Używane / nieużywane przez kod | czy kod wybranego repo odwołuje się do pliku |
+| Brakujące pliki | kod odwołuje się do pliku, którego w repo nie ma |
+
+Dźwięki łączą się w wiersz, gdy mają identyczną zawartość (skrót pliku), tę samą ścieżkę po zdjęciu `sound/` albo `Resources/Audio/`, albo tę samą nazwę pliku.
+Kropka w rogu: zielona to identyczny plik, żółta to inna wersja.
+Użycia to dosłowne ścieżki w kodzie: `'sound/...'` w `.dm`, a w SS14 `/Audio/...` w YAML i C#. Użycie kolekcji `soundCollection` liczy się każdemu jej plikowi.
+Ścieżek składanych w kodzie (np. `"sound/voice/[name].ogg"`) Portal nie widzi, więc taki plik może wyglądać na nieużywany.
 
 ## Ograniczenia
 
