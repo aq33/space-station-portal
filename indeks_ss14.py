@@ -10,6 +10,8 @@ import os
 
 import yaml
 
+import obraz
+
 try:
     Ladowarka = yaml.CSafeLoader
 except AttributeError:   # PyYAML bez libyaml
@@ -135,9 +137,26 @@ def zbuduj(repo, postep=lambda t: None):
                 with open(os.path.join(tekstury, rsi, "meta.json"), encoding="utf-8-sig") as f:
                     m = json.load(f)
                 meta[rsi] = {s.get("name") for s in m.get("states", []) if isinstance(s, dict)}
-            except (OSError, ValueError):
+                rozmiary[rsi] = (int((m.get("size") or {}).get("x", 32)), int((m.get("size") or {}).get("y", 32)))
+            except (OSError, ValueError, TypeError):
                 meta[rsi] = None
         return meta[rsi]
+
+    rozmiary = {}
+    podpisy = {}
+
+    def podpis_warstw(warstwy):
+        klucz = json.dumps(warstwy)
+        if klucz not in podpisy:
+            klatki = []
+            for w in warstwy:
+                rsi = w[0][len("Resources/Textures/"):]
+                szer, wys = rozmiary.get(rsi, (32, 32))
+                k = obraz.wycinek(obraz.otworz(os.path.join(tekstury, rsi, w[1] + ".png")), 0, szer, wys)
+                if k is not None:
+                    klatki.append((k, w[2] if len(w) > 2 else None))
+            podpisy[klucz] = obraz.podpis(obraz.zloz(klatki)) if klatki else None
+        return podpisy[klucz]
 
     def norm_rsi(r):
         if not isinstance(r, str):
@@ -197,6 +216,9 @@ def zbuduj(repo, postep=lambda t: None):
             "k": kategoria(e["_plik"]),
             "f": e["_plik"],
         }
+        pod = podpis_warstw(warstwy)
+        if pod:
+            wpis.update(pod)
         if r["description"]:
             wpis["d"] = str(r["description"]).strip()
         przedmiot = k.get("Item")

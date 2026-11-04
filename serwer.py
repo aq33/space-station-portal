@@ -14,6 +14,8 @@ import json
 import mimetypes
 import os
 import queue
+import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -27,12 +29,22 @@ from urllib.parse import unquote, urlparse
 import ekstraktor
 import indeks_ss13
 import indeks_ss14
+import obraz
+import sciezki
 
 TUTAJ = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(TUTAJ, "web")
 DANE = os.path.join(TUTAJ, "dane")
+KLONY = os.path.join(TUTAJ, "repo")
 LISTA = os.path.join(TUTAJ, "repozytoria.json")
-WERSJA_INDEKSU = 1
+RECZNE = os.path.join(TUTAJ, "reczne.json")
+WERSJA_INDEKSU = 2
+
+# Wzorce rzadkiego checkoutu przy klonowaniu z GitHuba: tylko kod i grafika.
+WZORCE_SS13 = ["/*", "!/sound/", "!/tgui/", "!/html/", "!/SQL/", "!/tools/*", "/tools/UpdatePaths/",
+               "!/node_modules/", "!/bin/", "!/config/", "!/strings/",
+               "!*.ogg", "!*.wav", "!*.mp3", "!*.dmm", "!*.mid", "!*.dll", "!*.pdb", "!*.so"]
+WZORCE_SS14 = ["/Resources/Prototypes/", "/Resources/Textures/"]
 
 blokada = threading.Lock()
 kolejka = queue.Queue()
@@ -91,7 +103,7 @@ def plik_indeksu(rid):
 def odcisk(repo):
     """Wersja kodu + wersja indeksera: zmiana któregoś unieważnia zapisany indeks."""
     g = wersja_git(repo["sciezka"])
-    narzedzia = max(os.path.getmtime(m.__file__) for m in (ekstraktor, indeks_ss13, indeks_ss14))
+    narzedzia = max(os.path.getmtime(m.__file__) for m in (ekstraktor, indeks_ss13, indeks_ss14, obraz))
     return "%s|%d|%d" % (g["sha"] if g else "brak-git", int(narzedzia), WERSJA_INDEKSU)
 
 
@@ -136,20 +148,147 @@ def buduj(repo):
         stan[rid] = {"etap": "błąd", "blad": str(e)}
 
 
+def git(argumenty, postep=None, cwd=None):
+    """Uruchamia git; postep(tekst) dostaje ostatni komunikat (np. „Receiving objects: 45%”)."""
+    proc = subprocess.Popen(["git", *argumenty], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    bledy = []
+    bufor = b""
+    while True:
+        kawalek = proc.stderr.read(256)
+        if not kawalek:
+            break
+        bufor += kawalek
+        *linie, bufor = bufor.replace(b"\r", b"\n").split(b"\n")
+        for l in linie:
+            t = l.decode("utf-8", "replace").strip()
+            if t:
+                bledy.append(t)
+                if postep and re.search(r"\d+%", t):
+                    postep(t.replace("remote: ", ""))
+    wyjscie = proc.stdout.read().decode("utf-8", "replace")
+    if proc.wait() != 0:
+        raise RuntimeError("git %s: %s" % (argumenty[0], (bledy[-1] if bledy else "błąd")))
+    return wyjscie
+
+
+def klonuj(repo, aktualizuj=False):
+    """Rzadki klon z GitHuba do folderu repo/ (tylko kod i grafika, bez dźwięków i map)."""
+    rid = repo["id"]
+    cel = repo["sciezka"]
+
+    def postep(t):
+        stan[rid]["etap"] = ("aktualizuję: " if aktualizuj else "pobieram: ") + t
+
+    if aktualizuj and os.path.isdir(os.path.join(cel, ".git")):
+        stan[rid] = {"etap": "aktualizuję z GitHuba", "blad": None}
+        git(["-C", cel, "fetch", "--depth", "1", "--filter=blob:none", "--progress", "origin"], postep)
+        git(["-C", cel, "reset", "--hard", "FETCH_HEAD"], postep)
+        return
+    stan[rid] = {"etap": "pobieram z GitHuba", "blad": None}
+    os.makedirs(KLONY, exist_ok=True)
+    argumenty = ["clone", "--depth", "1", "--filter=blob:none", "--no-checkout", "--progress"]
+    if repo.get("galaz"):
+        argumenty += ["--branch", repo["galaz"]]
+    try:
+        git(argumenty + [repo["zrodlo"], cel], postep)
+        pliki = git(["-C", cel, "ls-tree", "--name-only", "HEAD"]).split()
+        if any(p.lower().endswith(".dme") for p in pliki):
+            wzorce = WZORCE_SS13
+        elif "Resources" in pliki:
+            wzorce = WZORCE_SS14
+        else:
+            raise RuntimeError("To repo nie wygląda na SS13 (brak .dme) ani SS14 (brak Resources).")
+        git(["-C", cel, "sparse-checkout", "set", "--no-cone", *wzorce])
+        stan[rid]["etap"] = "pobieram pliki kodu i grafiki"
+        git(["-C", cel, "checkout", "--progress"], postep)
+    except Exception:
+        # niedokończony klon usuwamy, żeby następna próba zaczęła od zera
+        usun_klon(cel)
+        raise
+
+
+def usun_klon(sciezka):
+    """Usuwa folder tylko wtedy, gdy to nasz klon w repo/ (nigdy repo użytkownika)."""
+    p = os.path.normcase(os.path.abspath(sciezka))
+    if os.path.commonpath([p, os.path.normcase(KLONY)]) == os.path.normcase(KLONY) and p != os.path.normcase(KLONY):
+        def zdejmij_ochrone(funkcja, sciezka_, _):
+            os.chmod(sciezka_, 0o700)
+            funkcja(sciezka_)
+        shutil.rmtree(p, onerror=zdejmij_ochrone)
+
+
 def pracownik():
     while True:
-        rid, wymus = kolejka.get()
+        rid, wymus, aktualizuj = kolejka.get()
         repo = next((r for r in wczytaj_liste() if r["id"] == rid), None)
-        if repo and (wymus or not aktualny(repo)):
-            buduj(repo)
-        elif repo:
-            stan[rid] = {"etap": "gotowe", "blad": None}
+        try:
+            if repo and repo.get("zrodlo") and (aktualizuj or not os.path.isdir(os.path.join(repo["sciezka"], ".git"))):
+                klonuj(repo, aktualizuj)
+                rodzaj, _, blad = rozpoznaj(repo["sciezka"])
+                if blad:
+                    raise RuntimeError(blad)
+                with blokada:
+                    lista = wczytaj_liste()
+                    for r in lista:
+                        if r["id"] == rid:
+                            r["rodzaj"] = rodzaj
+                    zapisz_liste(lista)
+                repo["rodzaj"] = rodzaj
+                wymus = True
+            if repo and (wymus or not aktualny(repo)):
+                buduj(repo)
+            elif repo:
+                stan[rid] = {"etap": "gotowe", "blad": None}
+        except Exception as e:   # noqa: BLE001 – błąd ma trafić do interfejsu
+            traceback.print_exc()
+            stan[rid] = {"etap": "błąd", "blad": str(e)}
         kolejka.task_done()
 
 
-def zlec(rid, wymus=False):
+def zlec(rid, wymus=False, aktualizuj=False):
     stan[rid] = {"etap": "w kolejce", "blad": None}
-    kolejka.put((rid, wymus))
+    kolejka.put((rid, wymus, aktualizuj))
+
+
+pamiec_regul = {"klucz": None, "dane": None}
+
+
+def reguly_sciezek():
+    repa = [r["sciezka"] for r in wczytaj_liste() if r.get("rodzaj") == "ss13"]
+    klucz = json.dumps(repa)
+    if pamiec_regul["klucz"] != klucz:
+        pamiec_regul["dane"] = sciezki.zbierz(repa)
+        pamiec_regul["klucz"] = klucz
+    return pamiec_regul["dane"]
+
+
+def wczytaj_reczne():
+    try:
+        with open(RECZNE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"pary": {}}
+
+
+def wybierz_folder():
+    """Systemowe okno wyboru folderu (serwer działa na tym samym komputerze)."""
+    import tkinter
+    from tkinter import filedialog
+    okno = tkinter.Tk()
+    okno.withdraw()
+    okno.attributes("-topmost", True)
+    try:
+        return filedialog.askdirectory(title="Wybierz folder repozytorium SS13/SS14", mustexist=True) or ""
+    finally:
+        okno.destroy()
+
+
+def nazwa_z_url(url):
+    m = re.match(r"^https?://github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?(?:tree/([^?#]+))?$", url.strip())
+    if not m:
+        return None
+    return m.group(1), m.group(2), m.group(3)
 
 
 def opis_repo(r):
@@ -223,6 +362,10 @@ class Obsluga(BaseHTTPRequestHandler):
             return self._json([opis_repo(r) for r in wczytaj_liste()])
         if sciezka == "/api/propozycje":
             return self._json(propozycje())
+        if sciezka == "/api/sciezki":
+            return self._json(reguly_sciezek())
+        if sciezka == "/api/reczne":
+            return self._json(wczytaj_reczne())
         if sciezka.startswith("/api/indeks/"):
             rid = sciezka.rsplit("/", 1)[1]
             p = plik_indeksu(rid)
@@ -279,7 +422,39 @@ class Obsluga(BaseHTTPRequestHandler):
             zlec(rid)
             return self._json({"id": rid})
         if sciezka == "/api/odswiez":
-            zlec(str(dane.get("id")), wymus=True)
+            zlec(str(dane.get("id")), wymus=True, aktualizuj=bool(dane.get("aktualizuj")))
+            return self._json({"ok": True})
+        if sciezka == "/api/klonuj":
+            url = str(dane.get("url", "")).strip()
+            czesci = nazwa_z_url(url)
+            if not czesci:
+                return self._json({"blad": "Podaj link w postaci https://github.com/właściciel/repo (może być z /tree/gałąź)."}, 400)
+            wlasciciel, nazwa_repo, galaz = czesci
+            folder = os.path.join(KLONY, "%s__%s%s" % (wlasciciel, nazwa_repo, ("__" + re.sub(r"\W+", "_", galaz)) if galaz else ""))
+            with blokada:
+                lista = wczytaj_liste()
+                rid = id_repo(folder)
+                if any(r["id"] == rid for r in lista):
+                    return self._json({"blad": "To repo już jest na liście."}, 400)
+                lista.append({
+                    "id": rid, "nazwa": str(dane.get("nazwa") or "").strip() or nazwa_repo, "sciezka": folder, "rodzaj": "?",
+                    "zrodlo": "https://github.com/%s/%s.git" % (wlasciciel, nazwa_repo), "galaz": galaz or None,
+                })
+                zapisz_liste(lista)
+            zlec(rid)
+            return self._json({"id": rid})
+        if sciezka == "/api/wybierz-folder":
+            try:
+                return self._json({"sciezka": wybierz_folder()})
+            except Exception as e:   # noqa: BLE001
+                return self._json({"blad": "Nie udało się otworzyć okna wyboru: %s" % e}, 500)
+        if sciezka == "/api/reczne":
+            if not isinstance(dane.get("pary"), dict):
+                return self._json({"blad": "zły format"}, 400)
+            with blokada:
+                with open(RECZNE, "w", encoding="utf-8", newline="\n") as f:
+                    json.dump({"pary": dane["pary"]}, f, ensure_ascii=False, indent=1, sort_keys=True)
+                    f.write("\n")
             return self._json({"ok": True})
         if sciezka == "/api/zmien":
             with blokada:
@@ -294,8 +469,15 @@ class Obsluga(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if sciezka == "/api/usun":
             with blokada:
-                lista = [r for r in wczytaj_liste() if r["id"] != dane.get("id")]
+                stara = wczytaj_liste()
+                lista = [r for r in stara if r["id"] != dane.get("id")]
                 zapisz_liste(lista)
+            for r in stara:
+                if r["id"] == dane.get("id") and r.get("zrodlo"):
+                    try:
+                        usun_klon(r["sciezka"])   # klon pobrany przez porównywarkę
+                    except OSError:
+                        pass
             try:
                 os.remove(plik_indeksu(str(dane.get("id"))))
             except OSError:

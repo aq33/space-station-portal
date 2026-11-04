@@ -9,44 +9,47 @@
 <body>
 <header id="gora">
   <h1>Porównywarka sprite'ów</h1>
-  <div id="repa"></div>
-  <button id="dodajRepo" class="przycisk">+ Dodaj repo</button>
+  <input id="szukaj" type="search" placeholder="Szukaj przedmiotu, np. crowbar, captain, /obj/item/gun" autocomplete="off" autofocus>
+  <select id="kategoria" title="Kategoria">
+    <option value="">Wszystko</option>
+    <option value="przedmioty">Przedmioty</option>
+    <option value="ubrania">Ubrania</option>
+    <option value="bronie">Bronie</option>
+    <option value="jedzenie">Jedzenie i napoje</option>
+    <option value="maszyny">Maszyny</option>
+    <option value="struktury">Struktury</option>
+    <option value="moby">Moby</option>
+    <option value="podlogi">Podłogi i ściany</option>
+    <option value="inne">Inne</option>
+  </select>
+  <div id="kryteria" class="kryteria" title="Po czym szukać odpowiedników w innych repo"><span>Porównuj po:</span></div>
+  <details id="opcje" class="rozwijane">
+    <summary class="przycisk">Widok ▾</summary>
+    <div class="menu">
+      <label>Wiersze z <select id="zrodloWierszy"></select></label>
+      <label>Rozmiar sprite'ów
+        <select id="skala"><option value="1">mały (1×)</option><option value="2">średni (2×)</option><option value="3">duży (3×)</option></select>
+      </label>
+      <label>Tło <select id="tloTabeli">
+        <option value="szachownica">szachownica</option><option value="ciemne">ciemne</option><option value="jasne">jasne</option><option value="podloga">podłoga</option>
+      </select></label>
+      <label class="pole"><input id="tylkoZOdp" type="checkbox"> Tylko przedmioty, które mają odpowiednik</label>
+    </div>
+  </details>
 </header>
 
-<main id="uklad">
-  <aside id="lewy">
-    <div class="filtry">
-      <input id="szukaj" type="search" placeholder="Szukaj: nazwa albo ścieżka (np. crowbar, /obj/item/gun)" autocomplete="off">
-      <div class="wiersz">
-        <label>Lista z <select id="wzorzec"></select></label>
-        <select id="kategoria">
-          <option value="">Wszystkie</option>
-          <option value="przedmioty">Przedmioty</option>
-          <option value="ubrania">Ubrania</option>
-          <option value="bronie">Bronie</option>
-          <option value="jedzenie">Jedzenie i napoje</option>
-          <option value="maszyny">Maszyny</option>
-          <option value="struktury">Struktury</option>
-          <option value="moby">Moby</option>
-          <option value="podlogi">Podłogi i ściany</option>
-          <option value="inne">Inne</option>
-        </select>
-      </div>
-      <label class="wiersz" title="Liczy tylko pewne dopasowania: ścieżka, nazwa albo identyfikator">
-        Odpowiedniki w co najmniej
-        <select id="minimum">
-          <option value="0">0</option><option value="1" selected>1</option><option value="2">2</option>
-          <option value="3">3</option><option value="4">4</option><option value="5">5</option>
-        </select>
-        innych repo
-      </label>
-    </div>
-    <div id="licznik"></div>
-    <ul id="lista" tabindex="0"></ul>
-  </aside>
+<div id="repa"></div>
 
-  <section id="prawy">
+<main id="tabela">
+  <div id="naglowkiTabeli" class="wiersz naglowki"></div>
+  <div id="wiersze"></div>
+  <div id="stopka"></div>
+</main>
+
+<dialog id="szczegoly">
+  <div class="szczegoly">
     <div id="pasek">
+      <div id="tytul"></div>
       <div class="grupa" id="widoki">
         <button data-widok="s" class="aktywny">Ikona</button>
         <button data-widok="r">W rękach</button>
@@ -67,24 +70,39 @@
         <button data-tlo="podloga">Podłoga</button>
       </div>
       <button id="animacja" class="przycisk" title="Spacja">⏸ Animacja</button>
+      <span class="odstep"></span>
+      <button id="poprzedni" class="przycisk" title="Poprzedni wiersz (↑)">↑</button>
+      <button id="nastepny" class="przycisk" title="Następny wiersz (↓)">↓</button>
+      <button id="zamknij" class="przycisk" title="Zamknij (Esc)">✕</button>
     </div>
-    <div id="naglowek"></div>
-    <div id="karty"><p class="pusto">Wybierz przedmiot z listy po lewej.</p></div>
-  </section>
-</main>
+    <div id="karty"></div>
+  </div>
+</dialog>
 
 <dialog id="oknoRepo">
   <form method="dialog" class="okno">
     <h2>Dodaj repozytorium</h2>
-    <p>Wskaż folder repo SS13 (z plikiem <code>.dme</code> i folderem <code>icons</code>) albo SS14 (z <code>Resources/Prototypes</code>). Pierwszy odczyt trwa od kilkunastu sekund do minuty.</p>
-    <div id="propozycje"></div>
-    <label>Ścieżka <input id="sciezkaRepo" placeholder="C:\Users\...\tgstation" autocomplete="off"></label>
-    <label>Nazwa (opcjonalnie) <input id="nazwaRepo" placeholder="np. tg"></label>
+    <section class="sposob">
+      <h3>Z GitHuba</h3>
+      <p>Wklej link do repo. Pobierze się tylko kod i grafika, bez dźwięków i map (kilkaset MB, kilka minut).</p>
+      <div class="rzad">
+        <input id="urlRepo" placeholder="https://github.com/tgstation/tgstation" autocomplete="off">
+        <button id="pobierzRepo" value="" class="przycisk glowny">Pobierz</button>
+      </div>
+    </section>
+    <section class="sposob">
+      <h3>Z dysku</h3>
+      <p>Folder z plikiem <code>.dme</code> i folderem <code>icons</code> (SS13) albo z <code>Resources</code> (SS14).</p>
+      <div class="rzad">
+        <input id="sciezkaRepo" placeholder="C:\Users\...\tgstation" autocomplete="off">
+        <button id="wybierzFolder" value="" class="przycisk" type="button">Wybierz folder…</button>
+        <button id="zatwierdzRepo" value="" class="przycisk glowny">Dodaj</button>
+      </div>
+      <div id="propozycje"></div>
+    </section>
+    <label>Nazwa kolumny (opcjonalnie) <input id="nazwaRepo" placeholder="np. tg" autocomplete="off"></label>
     <p id="bladRepo" class="blad"></p>
-    <div class="przyciski">
-      <button value="anuluj" class="przycisk">Zamknij</button>
-      <button id="zatwierdzRepo" value="" class="przycisk glowny">Dodaj</button>
-    </div>
+    <div class="przyciski"><button value="anuluj" class="przycisk">Zamknij</button></div>
   </form>
 </dialog>
 
@@ -93,13 +111,11 @@
     <h2 id="wyborTytul">Wybierz odpowiednik</h2>
     <input id="wyborSzukaj" type="search" placeholder="Szukaj w tym repo" autocomplete="off">
     <ul id="wyborLista"></ul>
-    <div class="przyciski">
-      <button id="wyborAuto" class="przycisk">Przywróć automatyczny</button>
-      <button id="wyborBrak" class="przycisk">Brak odpowiednika</button>
-      <button id="wyborZamknij" class="przycisk">Zamknij</button>
-    </div>
+    <div class="przyciski"><button id="wyborZamknij" class="przycisk">Zamknij</button></div>
   </div>
 </dialog>
+
+<div id="menuRepo" class="menu plywajace" hidden></div>
 
 <script type="module" src="js/main.js"></script>
 </body>

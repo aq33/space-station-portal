@@ -11,25 +11,36 @@ import struct
 import zlib
 
 import ekstraktor
+import obraz
 
+PNG_SYGNATURA = bytes([137, 80, 78, 71, 13, 10, 26, 10])
 KIERUNKI_STANU = re.compile(r'^\s*(\w+)\s*=\s*(.*)$')
 
 
+class OpisDmi(dict):
+    """Stany pliku .dmi: nazwa -> (numer pierwszej klatki, kierunki, klatki). Pierwszy stan o nazwie wygrywa."""
+    szer = 32
+    wys = 32
+
+
 def opis_dmi(sciezka):
-    """Zwraca zbiór nazw stanów pliku .dmi albo None, gdy pliku nie ma lub nie jest PNG."""
+    """Opis stanów pliku .dmi albo None, gdy pliku nie ma lub nie jest PNG."""
     try:
         with open(sciezka, "rb") as f:
             dane = f.read()
     except OSError:
         return None
-    if dane[:8] != b"\x89PNG\r\n\x1a\n":
+    if dane[:8] != PNG_SYGNATURA:
         return None
     i = 8
     tekst = None
+    szer_png = wys_png = 32
     while i + 8 <= len(dane):
         dlugosc, = struct.unpack(">I", dane[i:i + 4])
         typ = dane[i + 4:i + 8]
         tresc = dane[i + 8:i + 8 + dlugosc]
+        if typ == b"IHDR":
+            szer_png, wys_png = struct.unpack(">II", tresc[:8])
         if typ in (b"zTXt", b"tEXt"):
             zero = tresc.find(b"\0")
             if tresc[:zero] == b"Description":
@@ -41,15 +52,42 @@ def opis_dmi(sciezka):
         if typ == b"IEND":
             break
         i += 12 + dlugosc
+    wynik = OpisDmi()
     if tekst is None:
-        return {""}   # zwykły PNG: jeden obrazek bez nazwy stanu
-    stany = set()
+        # zwykły PNG: jeden obrazek bez nazwy stanu
+        wynik.szer, wynik.wys = szer_png, wys_png
+        wynik[""] = (0, 1, 1)
+        return wynik
+    indeks = 0
+    biezacy = None
+
+    def zamknij():
+        nonlocal indeks
+        if biezacy is None:
+            return
+        nazwa, kier, klatki = biezacy
+        if nazwa not in wynik:
+            wynik[nazwa] = (indeks, kier, klatki)
+        indeks += kier * klatki
+
     for linia in tekst.split("\n"):
         m = KIERUNKI_STANU.match(linia)
-        if m and m.group(1) == "state":
-            w = m.group(2).strip()
-            stany.add(w[1:-1] if w.startswith('"') and w.endswith('"') else w)
-    return stany
+        if not m:
+            continue
+        klucz, w = m.group(1), m.group(2).strip()
+        if klucz == "width":
+            wynik.szer = int(w)
+        elif klucz == "height":
+            wynik.wys = int(w)
+        elif klucz == "state":
+            zamknij()
+            biezacy = [w[1:-1] if w.startswith('"') and w.endswith('"') else w, 1, 1]
+        elif biezacy is not None and klucz == "dirs":
+            biezacy[1] = int(w)
+        elif biezacy is not None and klucz == "frames":
+            biezacy[2] = int(w)
+    zamknij()
+    return wynik
 
 
 def czysta_nazwa(n):
@@ -186,6 +224,16 @@ def zbuduj(dme, postep=lambda t: None):
             return [p, s]
         return None
 
+    podpisy = {}
+
+    def podpis_sprite(plik, stan_):
+        klucz = (plik, stan_)
+        if klucz not in podpisy:
+            st = stany(plik)
+            n = st[stan_][0]
+            podpisy[klucz] = obraz.podpis(obraz.wycinek(obraz.otworz(os.path.join(repo, plik)), n, st.szer, st.wys))
+        return podpisy[klucz]
+
     noszone = pliki_noszone(repo)
     pliki_slotu = {}
 
@@ -226,6 +274,9 @@ def zbuduj(dme, postep=lambda t: None):
             "s": [glowny],
             "k": kategoria(sciezka),
         }
+        pod = podpis_sprite(*glowny)
+        if pod:
+            wpis.update(pod)
         d = czysty_opis(wartosc(sciezka, "desc"))
         if d:
             wpis["d"] = d

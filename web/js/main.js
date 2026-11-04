@@ -1,5 +1,5 @@
 import * as Sprite from "./sprite.js";
-import { przygotuj, dopasuj, dopasujDokladnie, szukaj } from "./dopasowanie.js";
+import { KRYTERIA, PROG_PEWNE, PROG_MOZLIWE, przygotuj, propozycje, ocen, szukaj, ustawReguly } from "./dopasowanie.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, wlasc = {}, ...dzieci) => {
@@ -13,23 +13,30 @@ const el = (tag, wlasc = {}, ...dzieci) => {
   return e;
 };
 
-const ZAPIS = "porownywarka:v1";
-function wczytajUstawienia() {
-  try { return JSON.parse(localStorage.getItem(ZAPIS)) || {}; } catch { return {}; }
-}
-const ust = Object.assign({ widok: "s", kier: 0, zoom: 5, tlo: "szachownica", anim: true, ukryte: [], recznie: {}, wzorzec: null, minimum: 1, kategoria: "" }, wczytajUstawienia());
+// ---------------------------------------------------------------- ustawienia
+
+const ZAPIS = "porownywarka:v2";
+const domyslne = {
+  kryteria: { wyglad: true, nazwa: true, opis: true, sciezka: true },
+  widok: "s", kier: 0, zoom: 5, tlo: "szachownica", anim: true, ukryte: [],
+  kategoria: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "",
+};
+let ust;
+try { ust = Object.assign({}, domyslne, JSON.parse(localStorage.getItem(ZAPIS)) || {}); } catch { ust = { ...domyslne }; }
+ust.kryteria = Object.assign({}, domyslne.kryteria, ust.kryteria);
 function zapisz() {
   try { localStorage.setItem(ZAPIS, JSON.stringify(ust)); } catch { /* prywatne okno */ }
 }
 
 const stan = {
-  repa: [],              // z serwera
-  dane: new Map(),       // id repo -> indeks (przedmioty + mapy pomocnicze)
+  repa: [],
+  dane: new Map(),
   ladowane: new Set(),
-  wybrany: null,         // przedmiot z repo wzorcowego
-  lista: [],             // przefiltrowane przedmioty
-  pokazane: 400,
-  liczniki: new Map(),   // przedmiot -> liczba odpowiedników
+  reczne: { pary: {} },
+  wiersze: [],
+  generator: null,
+  koniec: false,
+  biezacy: -1,
 };
 
 const api = {
@@ -42,18 +49,20 @@ const api = {
   },
 };
 
-// ---------------------------------------------------------------- repozytoria
-
 const widoczne = () => stan.repa.filter((r) => !ust.ukryte.includes(r.id) && stan.dane.has(r.id));
-const nazwaRepo = (id) => stan.repa.find((r) => r.id === id)?.nazwa ?? "?";
+const etykieta = (r) => r.rodzaj === "ss14" ? "14" : r.rodzaj === "ss13" ? "13" : "…";
+
+// ---------------------------------------------------------------- repozytoria
 
 async function odswiezRepa() {
   stan.repa = await api.get("/api/repo");
   for (const r of stan.repa) {
     if (r.stan.etap === "gotowe" && !stan.dane.has(r.id) && !stan.ladowane.has(r.id)) wczytajIndeks(r.id);
   }
+  for (const id of [...stan.dane.keys()]) if (!stan.repa.some((r) => r.id === id)) stan.dane.delete(id);
   rysujRepa();
-  if (stan.repa.some((r) => !["gotowe", "błąd", "brak"].includes(r.stan.etap))) setTimeout(odswiezRepa, 1500);
+  clearTimeout(odswiezRepa._t);
+  if (stan.repa.some((r) => !["gotowe", "błąd", "brak"].includes(r.stan.etap))) odswiezRepa._t = setTimeout(odswiezRepa, 1200);
 }
 
 async function wczytajIndeks(id) {
@@ -67,235 +76,318 @@ async function wczytajIndeks(id) {
     console.warn("indeks", id, e);
   }
   stan.ladowane.delete(id);
-  stan.liczniki.clear();
-  if (!ust.wzorzec || !stan.repa.some((r) => r.id === ust.wzorzec)) ust.wzorzec = id;
   rysujRepa();
-  rysujWzorce();
-  filtruj();
-  if (!stan.wybrany) zHasha();
-  else rysujKarty();
+  rysujZrodla();
+  przelicz();
 }
 
 function rysujRepa() {
   const box = $("#repa");
-  box.replaceChildren();
-  stan.repa.forEach((r, i) => {
+  box.replaceChildren(el("span", { klasa: "etykieta" }, "Repo:"));
+  for (const r of stan.repa) {
     const s = r.stan;
-    let opis;
+    let opis = null;
     if (stan.ladowane.has(r.id)) opis = "wczytuję…";
-    else if (s.etap === "gotowe") opis = stan.dane.has(r.id) ? `${stan.dane.get(r.id).przedmioty.length.toLocaleString("pl")} sprite'ów` : "gotowe";
     else if (s.etap === "błąd") opis = "błąd";
-    else opis = `indeksuję: ${s.etap}…`;
+    else if (s.etap !== "gotowe") opis = s.etap + "…";
     const ukryte = ust.ukryte.includes(r.id);
     const w = stan.dane.get(r.id)?.wersja;
-    const chip = el("div", {
-      klasa: "repo" + (ukryte ? " ukryte" : "") + (s.etap === "błąd" ? " zle" : "") + (r.id === ust.wzorzec ? " wzor" : ""),
-      title: `${r.sciezka}\n${r.rodzaj.toUpperCase()}${w ? `, commit ${w.sha.slice(0, 9)} z ${w.data}` : ""}${s.blad ? "\nBłąd: " + s.blad : ""}\nKliknij, żeby ukryć lub pokazać kolumnę.`,
-    },
-    el("span", { klasa: "rodzaj " + r.rodzaj }, r.rodzaj === "ss14" ? "14" : "13"),
-    el("b", {}, r.nazwa),
-    el("small", {}, opis),
-    el("span", { klasa: "akcje" },
-      el("button", { title: "W lewo", onclick: (e) => { e.stopPropagation(); przesun(i, -1); } }, "◀"),
-      el("button", { title: "W prawo", onclick: (e) => { e.stopPropagation(); przesun(i, 1); } }, "▶"),
-      el("button", { title: "Przeczytaj repo od nowa", onclick: async (e) => { e.stopPropagation(); await api.post("/api/odswiez", { id: r.id }); stan.dane.delete(r.id); odswiezRepa(); } }, "↻"),
-      el("button", { title: "Zmień nazwę", onclick: async (e) => {
-        e.stopPropagation();
-        const n = prompt("Nowa nazwa repo:", r.nazwa);
-        if (n) { await api.post("/api/zmien", { id: r.id, nazwa: n }); odswiezRepa().then(() => { rysujWzorce(); rysujKarty(); }); }
-      } }, "✎"),
-      el("button", { title: "Usuń z listy (plików repo nie rusza)", onclick: async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Usunąć „${r.nazwa}” z porównywarki? Pliki repo zostają na dysku.`)) return;
-        await api.post("/api/usun", { id: r.id });
-        stan.dane.delete(r.id);
-        await odswiezRepa();
-        rysujWzorce(); filtruj(); rysujKarty();
-      } }, "✕"),
-    ));
-    chip.addEventListener("click", () => {
-      ust.ukryte = ukryte ? ust.ukryte.filter((x) => x !== r.id) : [...ust.ukryte, r.id];
-      zapisz(); stan.liczniki.clear(); rysujRepa(); filtruj(); rysujKarty();
-    });
-    box.append(chip);
-  });
-}
-
-async function przesun(i, o) {
-  const j = i + o;
-  if (j < 0 || j >= stan.repa.length) return;
-  const k = stan.repa.map((r) => r.id);
-  [k[i], k[j]] = [k[j], k[i]];
-  await api.post("/api/zmien", { kolejnosc: k });
-  await odswiezRepa();
-  rysujWzorce(); rysujKarty();
-}
-
-function rysujWzorce() {
-  const s = $("#wzorzec");
-  s.replaceChildren(...stan.repa.filter((r) => stan.dane.has(r.id)).map((r) => el("option", { value: r.id, selected: r.id === ust.wzorzec }, r.nazwa)));
-}
-
-// ---------------------------------------------------------------- okno dodawania repo
-
-$("#dodajRepo").addEventListener("click", async () => {
-  $("#bladRepo").textContent = "";
-  const box = $("#propozycje");
-  box.replaceChildren(el("small", {}, "Szukam repo obok…"));
-  $("#oknoRepo").showModal();
-  const prop = await api.get("/api/propozycje");
-  box.replaceChildren(prop.length ? el("small", {}, "Znalezione obok (kliknij, żeby wpisać):") : "");
-  for (const p of prop) {
-    box.append(el("button", { type: "button", klasa: "propozycja", onclick: () => { $("#sciezkaRepo").value = p.sciezka; $("#nazwaRepo").value = p.nazwa; } },
-      el("span", { klasa: "rodzaj " + p.rodzaj }, p.rodzaj === "ss14" ? "14" : "13"), p.nazwa));
+    box.append(el("button", {
+      klasa: "repo" + (ukryte ? " ukryte" : "") + (s.etap === "błąd" ? " zle" : "") + (opis ? " pracuje" : ""),
+      title: `${r.sciezka}${r.zrodlo ? "\nz " + r.zrodlo : ""}${w ? `\ncommit ${w.sha.slice(0, 9)} z ${w.data}` : ""}${stan.dane.has(r.id) ? `\n${stan.dane.get(r.id).przedmioty.length.toLocaleString("pl")} sprite'ów` : ""}${s.blad ? "\nBłąd: " + s.blad : ""}\n\nKliknij, żeby ukryć lub pokazać kolumnę.`,
+      onclick: () => {
+        ust.ukryte = ukryte ? ust.ukryte.filter((x) => x !== r.id) : [...ust.ukryte, r.id];
+        zapisz(); rysujRepa(); rysujZrodla(); przelicz();
+      },
+    }, el("span", { klasa: "rodzaj " + r.rodzaj }, etykieta(r)), el("b", {}, r.nazwa), opis ? el("small", {}, opis) : null));
   }
+  box.append(el("button", { klasa: "przycisk glowny maly", onclick: otworzDodawanie }, "+ Dodaj repo"));
+}
+
+function rysujZrodla() {
+  const s = $("#zrodloWierszy");
+  if (ust.zrodloWierszy && !widoczne().some((r) => r.id === ust.zrodloWierszy)) ust.zrodloWierszy = "";
+  s.replaceChildren(el("option", { value: "" }, "wszystkich repo"),
+    ...widoczne().map((r) => el("option", { value: r.id }, r.nazwa)));
+  s.value = ust.zrodloWierszy;
+}
+
+function pokazMenuRepo(repo, przycisk) {
+  const menu = $("#menuRepo");
+  const i = stan.repa.indexOf(repo);
+  const pozycja = (tekst, fn) => el("button", { onclick: async () => { menu.hidden = true; await fn(); } }, tekst);
+  menu.replaceChildren(
+    el("div", { klasa: "tytul" }, el("b", {}, repo.nazwa), el("small", {}, repo.zrodlo || repo.sciezka)),
+    pozycja("Ukryj kolumnę", () => { ust.ukryte.push(repo.id); zapisz(); rysujRepa(); rysujZrodla(); przelicz(); }),
+    i > 0 ? pozycja("◀ Przesuń w lewo", () => przesun(i, -1)) : null,
+    i < stan.repa.length - 1 ? pozycja("Przesuń w prawo ▶", () => przesun(i, 1)) : null,
+    pozycja("Zmień nazwę…", async () => {
+      const n = prompt("Nowa nazwa kolumny:", repo.nazwa);
+      if (n) { await api.post("/api/zmien", { id: repo.id, nazwa: n }); await odswiezRepa(); przelicz(); }
+    }),
+    repo.zrodlo
+      ? pozycja("Aktualizuj z GitHuba", async () => { await api.post("/api/odswiez", { id: repo.id, aktualizuj: true }); stan.dane.delete(repo.id); await odswiezRepa(); przelicz(); })
+      : pozycja("Przeczytaj od nowa", async () => { await api.post("/api/odswiez", { id: repo.id }); stan.dane.delete(repo.id); await odswiezRepa(); przelicz(); }),
+    pozycja(repo.zrodlo ? "Usuń (razem z pobranym klonem)" : "Usuń z porównywarki", async () => {
+      if (!confirm(repo.zrodlo ? `Usunąć „${repo.nazwa}” i pobrany klon z folderu repo/?` : `Usunąć „${repo.nazwa}” z porównywarki? Pliki repo zostają na dysku.`)) return;
+      await api.post("/api/usun", { id: repo.id });
+      stan.dane.delete(repo.id);
+      await odswiezRepa(); rysujZrodla(); przelicz();
+    }),
+  );
+  const r = przycisk.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 300))}px`;
+  menu.style.top = `${r.bottom + 4}px`;
+  menu.hidden = false;
+}
+document.addEventListener("click", (e) => {
+  if (!$("#menuRepo").hidden && !e.target.closest("#menuRepo, .menuRepo")) $("#menuRepo").hidden = true;
+  if ($("#opcje").open && !e.target.closest("#opcje")) $("#opcje").open = false;
 });
 
-$("#zatwierdzRepo").addEventListener("click", async (e) => {
-  e.preventDefault();
+async function przesun(i, o) {
+  const k = stan.repa.map((r) => r.id);
+  [k[i], k[i + o]] = [k[i + o], k[i]];
+  await api.post("/api/zmien", { kolejnosc: k });
+  await odswiezRepa();
+  rysujZrodla();
+  przelicz();
+}
+
+// ---------------------------------------------------------------- dodawanie repo
+
+async function otworzDodawanie() {
+  $("#bladRepo").textContent = "";
+  const box = $("#propozycje");
+  box.replaceChildren();
+  $("#oknoRepo").showModal();
+  const prop = await api.get("/api/propozycje");
+  if (prop.length) box.append(el("small", {}, "Znalezione obok tego projektu (kliknij, żeby wpisać):"));
+  for (const p of prop) {
+    box.append(el("button", { type: "button", klasa: "propozycja", onclick: () => { $("#sciezkaRepo").value = p.sciezka; $("#nazwaRepo").value ||= p.nazwa; } },
+      el("span", { klasa: "rodzaj " + p.rodzaj }, p.rodzaj === "ss14" ? "14" : "13"), p.nazwa));
+  }
+}
+
+async function dodaj(url, dane) {
+  $("#bladRepo").textContent = "";
   try {
-    await api.post("/api/repo", { sciezka: $("#sciezkaRepo").value, nazwa: $("#nazwaRepo").value });
-    $("#sciezkaRepo").value = ""; $("#nazwaRepo").value = "";
+    await api.post(url, { ...dane, nazwa: $("#nazwaRepo").value });
+    $("#urlRepo").value = ""; $("#sciezkaRepo").value = ""; $("#nazwaRepo").value = "";
     $("#oknoRepo").close();
     odswiezRepa();
   } catch (err) {
     $("#bladRepo").textContent = err.message;
   }
+}
+$("#pobierzRepo").addEventListener("click", (e) => { e.preventDefault(); dodaj("/api/klonuj", { url: $("#urlRepo").value }); });
+$("#zatwierdzRepo").addEventListener("click", (e) => { e.preventDefault(); dodaj("/api/repo", { sciezka: $("#sciezkaRepo").value }); });
+$("#wybierzFolder").addEventListener("click", async () => {
+  $("#bladRepo").textContent = "Otwieram okno wyboru folderu (może się schować pod przeglądarką)…";
+  try {
+    const { sciezka } = await api.post("/api/wybierz-folder", {});
+    $("#bladRepo").textContent = "";
+    if (sciezka) $("#sciezkaRepo").value = sciezka;
+  } catch (err) {
+    $("#bladRepo").textContent = err.message;
+  }
 });
 
-// ---------------------------------------------------------------- lista
+// ---------------------------------------------------------------- ręczne poprawki
 
-function liczOdpowiedniki(p) {
-  let n = stan.liczniki.get(p);
-  if (n === undefined) {
-    n = 0;
-    for (const r of widoczne()) {
-      if (r.id === ust.wzorzec) continue;
-      if (dopasujDokladnie(p, stan.dane.get(r.id))) n++;
+const klucz = (repoId, p) => `${repoId}|${p.id}`;
+
+function reczny(repoId, p, celId) {
+  const r = stan.reczne.pary[klucz(repoId, p)];
+  if (!r || !(celId in r)) return undefined;
+  if (r[celId] === null) return null;
+  return stan.dane.get(celId)?.m.poId.get(r[celId]) ?? undefined;
+}
+
+// pB: przedmiot, null = „brak odpowiednika”, undefined = wróć do automatu. Pary zapisujemy w obie strony.
+async function ustawReczny(repoA, pA, repoB, pB) {
+  const pary = stan.reczne.pary;
+  const kA = klucz(repoA, pA);
+  const stary = pary[kA]?.[repoB];
+  if (stary) {
+    const kS = `${repoB}|${stary}`;
+    if (pary[kS]) { delete pary[kS][repoA]; if (!Object.keys(pary[kS]).length) delete pary[kS]; }
+  }
+  if (pB === undefined) { if (pary[kA]) delete pary[kA][repoB]; }
+  else {
+    (pary[kA] ||= {})[repoB] = pB ? pB.id : null;
+    if (pB) (pary[klucz(repoB, pB)] ||= {})[repoA] = pA.id;
+  }
+  if (pary[kA] && !Object.keys(pary[kA]).length) delete pary[kA];
+  await api.post("/api/reczne", stan.reczne);
+}
+
+// ---------------------------------------------------------------- wiersze
+
+// Komórka: najlepszy odpowiednik wzorca w danym repo (ręczny wybór ma pierwszeństwo).
+function komorka(repoWzorca, wzor, repoId) {
+  if (repoId === repoWzorca) return { p: wzor, pkt: 100, powody: ["wzorzec wiersza"], jak: "wzor" };
+  const r = reczny(repoWzorca, wzor, repoId);
+  if (r === null) return { p: null, jak: "brak-recznie" };
+  if (r) return { p: r, pkt: 100, powody: ["wybrany ręcznie"], jak: "reczne" };
+  const [n] = propozycje(wzor, stan.dane.get(repoId), ust.kryteria, 1);
+  if (!n || n.pkt < PROG_MOZLIWE) return { p: null, jak: "brak" };
+  return { ...n, jak: n.pkt >= PROG_PEWNE ? "pewne" : "mozliwe" };
+}
+
+function* generujWiersze() {
+  const repa = widoczne();
+  const zrodla = ust.zrodloWierszy ? repa.filter((r) => r.id === ust.zrodloWierszy) : repa;
+  const zapytanie = $("#szukaj").value;
+  const uzyte = new Set();
+  for (const zr of zrodla) {
+    for (const p of szukaj(stan.dane.get(zr.id).przedmioty, zapytanie, ust.kategoria)) {
+      if (uzyte.has(p)) continue;
+      uzyte.add(p);
+      const komorki = {};
+      let ile = 0;
+      for (const r of repa) {
+        const k = komorka(zr.id, p, r.id);
+        komorki[r.id] = k;
+        if (r.id !== zr.id && k.p) {
+          ile++;
+          // pewnie dopasowany przedmiot nie dostaje już własnego wiersza
+          if (k.jak === "pewne" || k.jak === "reczne") uzyte.add(k.p);
+        }
+      }
+      if (ust.tylkoZOdp && !ile) continue;
+      yield { zrodlo: zr.id, p, komorki, ile };
     }
-    stan.liczniki.set(p, n);
   }
-  return n;
 }
 
-function filtruj() {
-  const dane = stan.dane.get(ust.wzorzec);
-  if (!dane) { stan.lista = []; rysujListe(); return; }
-  const minimum = Math.min(ust.minimum, widoczne().filter((r) => r.id !== ust.wzorzec).length);
-  let lista = szukaj(dane.przedmioty, $("#szukaj").value, ust.kategoria);
-  if (minimum > 0) lista = lista.filter((p) => liczOdpowiedniki(p) >= minimum);
-  stan.lista = lista;
-  stan.pokazane = 400;
-  rysujListe();
+function przelicz() {
+  stan.wiersze = [];
+  stan.generator = generujWiersze();
+  stan.koniec = false;
+  rysujNaglowki();
+  $("#wiersze").replaceChildren();
+  dociagnij(50);
 }
 
-const obserwator = new IntersectionObserver((wpisy) => {
-  for (const w of wpisy) {
-    if (!w.isIntersecting) continue;
-    obserwator.unobserve(w.target);
-    const { repo, p } = w.target._dane;
-    rysujMiniature(w.target, repo, p.s);
+function dociagnij(ile) {
+  if (stan.koniec || !stan.generator) return;
+  const box = $("#wiersze");
+  const t0 = performance.now();
+  for (let i = 0; i < ile; i++) {
+    const n = stan.generator.next();
+    if (n.done) { stan.koniec = true; break; }
+    stan.wiersze.push(n.value);
+    box.append(rysujWiersz(n.value, stan.wiersze.length - 1));
+    if (performance.now() - t0 > 400) break;
   }
-}, { root: $("#lista"), rootMargin: "200px" });
+  const repa = widoczne();
+  $("#stopka").textContent = !repa.length
+    ? (stan.repa.length ? "Wczytuję repo…" : "Dodaj repozytorium przyciskiem „+ Dodaj repo”.")
+    : stan.koniec
+      ? (stan.wiersze.length ? `${stan.wiersze.length.toLocaleString("pl")} przedmiotów` : "Nic nie znaleziono.")
+      : `${stan.wiersze.length.toLocaleString("pl")} przedmiotów, przewiń po więcej`;
+}
+
+new IntersectionObserver((w) => { if (w[0].isIntersecting) dociagnij(40); }, { rootMargin: "600px" }).observe($("#stopka"));
+
+function rysujNaglowki() {
+  const repa = widoczne();
+  document.documentElement.style.setProperty("--kolumny", repa.length);
+  document.documentElement.style.setProperty("--miniatura", `${32 * ust.skala}px`);
+  $("#naglowkiTabeli").replaceChildren(el("div", { klasa: "kom pierwsza" }, "Przedmiot"),
+    ...repa.map((r) => el("div", { klasa: "kom" },
+      el("span", { klasa: "rodzaj " + r.rodzaj }, etykieta(r)),
+      el("b", {}, r.nazwa),
+      el("button", { klasa: "menuRepo", title: "Opcje kolumny", onclick: (e) => { e.stopPropagation(); pokazMenuRepo(r, e.currentTarget); } }, "⋯"))));
+}
+
+const OPIS_JAK = { pewne: "pewne", mozliwe: "możliwe", reczne: "ręcznie", wzor: "wzorzec", brak: "", "brak-recznie": "brak (ręcznie)" };
+const normalna = (n) => (n || "").toLowerCase().trim();
+
+function rysujWiersz(w, i) {
+  const repa = widoczne();
+  const nazwaZr = stan.repa.find((r) => r.id === w.zrodlo)?.nazwa;
+  const wiersz = el("div", { klasa: "wiersz", onclick: () => otworzSzczegoly(i) },
+    el("div", { klasa: "kom pierwsza" },
+      el("b", {}, w.p.n || "(bez nazwy)"),
+      el("small", { title: w.p.id }, `${nazwaZr}: ${w.p.id}`),
+      el("span", { klasa: "ile" + (w.ile === repa.length - 1 ? " wszystkie" : "") }, `w ${w.ile + 1} z ${repa.length} repo`)));
+  for (const r of repa) {
+    const k = w.komorki[r.id];
+    const kom = el("div", { klasa: "kom sprite tlo-" + ust.tloTabeli + (k.p ? "" : " pusta") });
+    if (k.p) {
+      const c = el("canvas", { width: 32 * ust.skala, height: 32 * ust.skala });
+      rysujMiniature(c, r.id, k.p.s, 32 * ust.skala);
+      kom.append(c);
+      kom.title = `${k.p.n}\n${k.p.id}${k.powody?.length ? "\n" + OPIS_JAK[k.jak] + ": " + k.powody.join(", ") : ""}`;
+      if (k.jak !== "wzor") kom.append(el("span", { klasa: "znacznik " + k.jak }));
+      if (k.p.n && k.jak !== "wzor" && normalna(k.p.n) !== normalna(w.p.n)) kom.append(el("small", { klasa: "inna-nazwa" }, k.p.n));
+    } else {
+      kom.append(el("span", { klasa: "brak" }, k.jak === "brak-recznie" ? "brak" : "—"));
+    }
+    wiersz.append(kom);
+  }
+  return wiersz;
+}
 
 async function rysujMiniature(canvas, repo, warstwy, rozmiar = 32) {
   const st = await Promise.all(warstwy.map((w) => Sprite.stan(repo, w[0], w[1])));
   const ok = st.filter(Boolean);
   if (!ok.length) return;
   const w = Math.max(...ok.map((s) => s.szer)), h = Math.max(...ok.map((s) => s.wys));
-  const skala = Math.min(rozmiar / w, rozmiar / h);
+  // Całkowita skala, żeby piksele były ostre; większe sprite'y zmniejszamy, żeby się zmieściły.
+  let skala = rozmiar / Math.max(w, h);
+  if (skala >= 1) skala = Math.floor(skala);
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const x0 = (rozmiar - w * skala) / 2, y0 = (rozmiar - h * skala) / 2;
   st.forEach((s, i) => {
-    if (s) Sprite.rysuj(ctx, s, 0, 0, (rozmiar - s.szer * skala) / 2, (rozmiar - s.wys * skala) / 2, skala, warstwy[i][2]);
+    if (s) Sprite.rysuj(ctx, s, 0, 0, Math.round(x0 + ((w - s.szer) / 2) * skala), Math.round(y0 + (h - s.wys) * skala), skala, warstwy[i][2]);
   });
 }
 
-function rysujListe() {
-  const ul = $("#lista");
-  ul.replaceChildren();
-  const n = widoczne().filter((r) => r.id !== ust.wzorzec).length;
-  $("#licznik").textContent = stan.dane.has(ust.wzorzec) ? `${stan.lista.length.toLocaleString("pl")} pozycji` : "Brak wczytanego repo.";
-  for (const p of stan.lista.slice(0, stan.pokazane)) {
-    const c = el("canvas", { width: 32, height: 32 });
-    c._dane = { repo: ust.wzorzec, p };
-    const ile = liczOdpowiedniki(p);
-    const li = el("li", { klasa: p === stan.wybrany ? "wybrany" : "", title: p.id, onclick: () => wybierz(p) },
-      c,
-      el("div", { klasa: "opis" }, el("b", {}, p.n || "(bez nazwy)"), el("small", {}, p.id)),
-      n ? el("span", { klasa: "ile" + (ile === n ? " wszystkie" : ""), title: `Pewne odpowiedniki w ${ile} z ${n} pozostałych repo` }, `${ile}/${n}`) : null);
-    li._p = p;
-    ul.append(li);
-    obserwator.observe(c);
-  }
-  if (stan.lista.length > stan.pokazane) {
-    ul.append(el("li", { klasa: "wiecej", onclick: () => { stan.pokazane += 400; rysujListe(); } }, `Pokaż więcej (${(stan.lista.length - stan.pokazane).toLocaleString("pl")})`));
-  }
-}
+// ---------------------------------------------------------------- szczegóły wiersza
 
-$("#szukaj").addEventListener("input", () => { clearTimeout(filtruj._t); filtruj._t = setTimeout(filtruj, 150); });
-$("#wzorzec").addEventListener("change", (e) => { ust.wzorzec = e.target.value; zapisz(); stan.liczniki.clear(); rysujRepa(); filtruj(); });
-$("#kategoria").value = ust.kategoria;
-$("#kategoria").addEventListener("change", (e) => { ust.kategoria = e.target.value; zapisz(); filtruj(); });
-$("#minimum").value = String(ust.minimum);
-$("#minimum").addEventListener("change", (e) => { ust.minimum = +e.target.value; zapisz(); filtruj(); });
-
-$("#lista").addEventListener("keydown", (e) => {
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-  e.preventDefault();
-  const i = stan.lista.indexOf(stan.wybrany);
-  const j = Math.max(0, Math.min(stan.lista.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)));
-  if (stan.lista[j]) wybierz(stan.lista[j]);
-  $("#lista .wybrany")?.scrollIntoView({ block: "nearest" });
-});
-
-function wybierz(p) {
-  stan.wybrany = p;
-  for (const li of $("#lista").children) li.classList.toggle("wybrany", li._p === p);
-  history.replaceState(null, "", `#w=${encodeURIComponent(ust.wzorzec)}&p=${encodeURIComponent(p.id)}`);
-  rysujKarty();
-}
-
-function zHasha() {
-  const h = new URLSearchParams(location.hash.slice(1));
-  const w = h.get("w"), id = h.get("p");
-  if (!w || !id) return;
-  const d = stan.dane.get(w);
-  const p = d?.poId.get(id);
-  if (!p) return;
-  if (ust.wzorzec !== w) { ust.wzorzec = w; rysujWzorce(); filtruj(); }
-  wybierz(p);
-}
-
-// ---------------------------------------------------------------- karty porównania
-
-const animowane = new Set();   // funkcje rysujące (czas) => void
+const animowane = new Set();
 let start = performance.now();
-
 function petla() {
-  if (ust.anim) for (const f of animowane) f(performance.now() - start);
+  if (ust.anim && $("#szczegoly").open) for (const f of animowane) f(performance.now() - start);
   requestAnimationFrame(petla);
 }
 requestAnimationFrame(petla);
 
-function kluczRecznych() { return `${ust.wzorzec}|${stan.wybrany?.id}`; }
-
-function odpowiednik(repoId) {
-  const p = stan.wybrany;
-  if (repoId === ust.wzorzec) return { p, jak: "wzorzec" };
-  const r = ust.recznie[kluczRecznych()];
-  if (r && repoId in r) {
-    if (r[repoId] === null) return { p: null, jak: "ręcznie: brak" };
-    const x = stan.dane.get(repoId).poId.get(r[repoId]);
-    if (x) return { p: x, jak: "wybrany ręcznie" };
-  }
-  return dopasuj(p, stan.dane.get(repoId));
+function otworzSzczegoly(i) {
+  stan.biezacy = i;
+  if (!$("#szczegoly").open) $("#szczegoly").showModal();
+  rysujSzczegoly();
 }
+
+function przejdz(o) {
+  const j = stan.biezacy + o;
+  if (j < 0) return;
+  if (j >= stan.wiersze.length) dociagnij(40);
+  if (j < stan.wiersze.length) otworzSzczegoly(j);
+}
+$("#poprzedni").addEventListener("click", () => przejdz(-1));
+$("#nastepny").addEventListener("click", () => przejdz(1));
+$("#zamknij").addEventListener("click", () => $("#szczegoly").close());
+$("#szczegoly").addEventListener("close", () => {
+  animowane.clear();
+  // odśwież wiersz w tabeli, bo w szczegółach mogły się zmienić odpowiedniki
+  const w = stan.wiersze[stan.biezacy];
+  const stary = $("#wiersze").children[stan.biezacy];
+  if (w && stary) {
+    let ile = 0;
+    for (const r of widoczne()) if (r.id !== w.zrodlo && w.komorki[r.id]?.p) ile++;
+    w.ile = ile;
+    stary.replaceWith(rysujWiersz(w, stan.biezacy));
+  }
+});
 
 const NAZWY_KIER = ["S", "N", "E", "W"];
 
-// Scena: jeden lub kilka kierunków danego zestawu warstw.
 async function scena(repo, warstwy, opcje = {}) {
   const box = el("div", { klasa: "scena tlo-" + ust.tlo });
   if (!warstwy || !warstwy.length) {
@@ -318,17 +410,14 @@ async function scena(repo, warstwy, opcje = {}) {
     const c = el("canvas", { width: szer * z, height: wys * z, title: opcje.tytul || "" });
     const ctx = c.getContext("2d");
     ctx.imageSmoothingEnabled = false;
-    const animuje = ok.some((s) => s.s.klatki > 1);
     const rysuj = (czas) => {
       ctx.clearRect(0, 0, c.width, c.height);
       st.forEach((s, i) => {
-        if (!s) return;
-        const klatka = Sprite.numerKlatki(s.s, czas);
-        Sprite.rysuj(ctx, s, k, klatka, ((szer - s.szer) / 2) * z, (wys - s.wys) * z, z, warstwy[i][2]);
+        if (s) Sprite.rysuj(ctx, s, k, Sprite.numerKlatki(s.s, czas), ((szer - s.szer) / 2) * z, (wys - s.wys) * z, z, warstwy[i][2]);
       });
     };
     rysuj(0);
-    if (animuje) animowane.add(rysuj);
+    if (ok.some((s) => s.s.klatki > 1)) animowane.add(rysuj);
     const kafel = el("figure", {}, c);
     if (kierunki.length > 1) kafel.append(el("figcaption", {}, NAZWY_KIER[k]));
     box.append(kafel);
@@ -337,50 +426,46 @@ async function scena(repo, warstwy, opcje = {}) {
 }
 
 function kopiuj(tekst, e) {
+  e.stopPropagation();
   navigator.clipboard?.writeText(tekst);
   const t = e.currentTarget;
   t.classList.add("skopiowano");
   setTimeout(() => t.classList.remove("skopiowano"), 700);
 }
 
-let numerRysowania = 0;
-
-async function rysujKarty() {
-  const nr = ++numerRysowania;
+let numerSzczegolow = 0;
+async function rysujSzczegoly() {
+  const nr = ++numerSzczegolow;
   animowane.clear();
-  const p = stan.wybrany;
+  const w = stan.wiersze[stan.biezacy];
+  if (!w) return;
+  for (const r of widoczne()) w.komorki[r.id] = komorka(w.zrodlo, w.p, r.id);
+  $("#tytul").replaceChildren(el("h2", {}, w.p.n || w.p.id), el("small", {}, `wiersz ${stan.biezacy + 1}`));
+  const karty = await Promise.all(widoczne().map((r) => karta(w, r)));
+  if (nr !== numerSzczegolow) return;
   const box = $("#karty");
-  if (!p) {
-    $("#naglowek").replaceChildren();
-    box.replaceChildren(el("p", { klasa: "pusto" }, stan.repa.length ? "Wybierz przedmiot z listy po lewej." : "Dodaj repozytorium przyciskiem „+ Dodaj repo” na górze."));
-    return;
-  }
-  $("#naglowek").replaceChildren(el("h2", {}, p.n || p.id), el("code", {}, nazwaRepo(ust.wzorzec) + ": " + p.id));
-  const repa = widoczne();
-  const karty = await Promise.all(repa.map((r) => karta(r, odpowiednik(r.id))));
-  if (nr !== numerRysowania) return;
   box.replaceChildren(...karty.map((k) => k.el));
-  // Wspólny rozmiar scen, żeby sprite'y o tej samej skali stały w równych polach.
-  const w = Math.max(32, ...karty.map((k) => k.w)), h = Math.max(32, ...karty.map((k) => k.h));
-  box.style.setProperty("--scena-w", `${w * ust.zoom}px`);
-  box.style.setProperty("--scena-h", `${h * ust.zoom}px`);
+  const sw = Math.max(32, ...karty.map((k) => k.w)), sh = Math.max(32, ...karty.map((k) => k.h));
+  box.style.setProperty("--scena-w", `${sw * ust.zoom}px`);
+  box.style.setProperty("--scena-h", `${sh * ust.zoom}px`);
   box.style.setProperty("--z", ust.zoom);
-  const kolumny = ust.kier === -1 ? 4 : 1;
-  box.style.setProperty("--karta-w", `${Math.max(240, kolumny * w * ust.zoom + (kolumny - 1) * 4 + 26)}px`);
+  const kol = ust.kier === -1 ? 4 : 1;
+  box.style.setProperty("--karta-w", `${Math.max(250, kol * sw * ust.zoom + (kol - 1) * 4 + 26)}px`);
 }
 
-async function karta(repo, d) {
+async function karta(w, repo) {
+  const k = w.komorki[repo.id];
+  const wzor = repo.id === w.zrodlo;
+  const p = k.p;
   const dane = stan.dane.get(repo.id);
-  const wzor = repo.id === ust.wzorzec;
-  const p = d?.p;
-  const glowa = el("header", {},
-    el("span", { klasa: "rodzaj " + repo.rodzaj }, repo.rodzaj === "ss14" ? "14" : "13"),
-    el("b", {}, repo.nazwa),
-    dane.wersja ? el("small", { title: dane.wersja.sha }, dane.wersja.data) : null);
-  const k = el("article", { klasa: "karta" + (wzor ? " wzor" : "") + (p ? "" : " pusta") }, glowa);
-  let w = 0, h = 0;
+  const art = el("article", { klasa: "karta" + (wzor ? " wzor" : "") + (p ? "" : " pusta") },
+    el("header", {},
+      el("span", { klasa: "rodzaj " + repo.rodzaj }, etykieta(repo)),
+      el("b", {}, repo.nazwa),
+      dane.wersja ? el("small", { title: dane.wersja.sha }, dane.wersja.data) : null));
+  let sw = 0, sh = 0;
   if (!p) {
-    k.append(el("div", { klasa: "scena brak tlo-" + ust.tlo }, el("span", {}, d?.jak === "ręcznie: brak" ? "oznaczone: brak odpowiednika" : "nie znaleziono odpowiednika")));
+    art.append(el("div", { klasa: "scena brak tlo-" + ust.tlo }, el("span", {}, k.jak === "brak-recznie" ? "oznaczone ręcznie: brak odpowiednika" : "nie znaleziono odpowiednika")));
   } else {
     const sceny = [];
     if (ust.widok === "s") sceny.push(await scena(repo.id, p.s));
@@ -388,26 +473,44 @@ async function karta(repo, d) {
       sceny.push(await scena(repo.id, p.l, { brak: "brak sprite'a w lewej ręce", tytul: "lewa ręka" }));
       sceny.push(await scena(repo.id, p.p, { brak: "brak sprite'a w prawej ręce", tytul: "prawa ręka" }));
     } else sceny.push(await scena(repo.id, p.w, { brak: "brak sprite'a na postaci" }));
-    for (const s of sceny) { k.append(s.box); w = Math.max(w, s.w); h = Math.max(h, s.h); }
+    for (const s of sceny) { art.append(s.box); sw = Math.max(sw, s.w); sh = Math.max(sh, s.h); }
     const plik = p.s[0];
     const info = el("div", { klasa: "info" },
       el("div", { klasa: "nazwa" }, p.n || "(bez nazwy)"),
       p.d ? el("p", { klasa: "opisp", title: p.d }, p.d) : null,
       el("code", { klasa: "kopiuj", title: "Kliknij, żeby skopiować", onclick: (e) => kopiuj(p.id, e) }, p.id),
-      el("code", { klasa: "kopiuj plik", title: "Plik i stan – kliknij, żeby skopiować ścieżkę", onclick: (e) => kopiuj(plik[0], e) },
-        `${plik[0]}`, el("br"), `stan: "${plik[1]}"`, p.s.length > 1 ? ` (+${p.s.length - 1} warstw)` : ""),
-    );
-    k.append(info);
+      el("code", { klasa: "kopiuj plik", title: "Kliknij, żeby skopiować ścieżkę pliku", onclick: (e) => kopiuj(plik[0], e) },
+        plik[0], el("br"), `stan: "${plik[1]}"`, p.s.length > 1 ? ` (+${p.s.length - 1} warstw)` : ""));
+    art.append(info);
     const meta = plik[0].endsWith(".rsi") ? await Sprite.plik(repo.id, plik[0]) : null;
     if (meta && (meta.licencja || meta.autorzy)) info.append(el("p", { klasa: "licencja", title: meta.autorzy }, `${meta.licencja}${meta.autorzy ? " · " + meta.autorzy : ""}`));
   }
-  const stopka = el("footer", {},
-    wzor ? el("span", { klasa: "jak wzor" }, "wzorzec") : el("span", { klasa: "jak " + (d ? (d.jak.startsWith("podobna") ? "slabe" : d.jak.startsWith("ręcznie") || d.jak.startsWith("wybrany") ? "reczne" : "pewne") : "slabe") }, d ? `dopasowanie: ${d.jak}` : "brak"),
-    !wzor ? el("button", { klasa: "przycisk maly", onclick: () => otworzWybor(repo) }, "Zmień") : null,
-    p ? el("button", { klasa: "przycisk maly", onclick: (e) => przelaczStany(k, repo.id, p, e.currentTarget) }, "Stany pliku") : null,
-  );
-  k.append(stopka);
-  return { el: k, w, h };
+  const stopka = el("footer", {});
+  if (wzor) stopka.append(el("span", { klasa: "jak wzor" }, "od tego przedmiotu zaczyna się wiersz"));
+  else {
+    if (p) stopka.append(el("span", { klasa: "jak " + k.jak }, `${OPIS_JAK[k.jak]}: ${k.powody.join(", ")}`));
+    const prop = propozycje(w.p, dane, ust.kryteria, 5).filter((x) => x.p !== p);
+    if (prop.length) {
+      stopka.append(el("div", { klasa: "inne" }, el("small", {}, "Inne propozycje:"),
+        ...prop.slice(0, 4).map((x) => {
+          const c = el("canvas", { width: 32, height: 32 });
+          rysujMiniature(c, repo.id, x.p.s, 32);
+          return el("button", {
+            klasa: "propozycja-sprite",
+            title: `${x.p.n}\n${x.p.id}\n${x.powody.join(", ")} (${Math.round(x.pkt)} pkt)\nKliknij, żeby wybrać`,
+            onclick: async () => { await ustawReczny(w.zrodlo, w.p, repo.id, x.p); rysujSzczegoly(); },
+          }, c);
+        })));
+    }
+    stopka.append(el("div", { klasa: "rzad" },
+      el("button", { klasa: "przycisk maly", onclick: () => otworzWybor(w, repo) }, "Wskaż inny…"),
+      p && k.jak !== "reczne" ? el("button", { klasa: "przycisk maly", title: "Zapamiętaj to dopasowanie na stałe", onclick: async () => { await ustawReczny(w.zrodlo, w.p, repo.id, p); rysujSzczegoly(); } }, "✓ Dobrze") : null,
+      p ? el("button", { klasa: "przycisk maly", onclick: async () => { await ustawReczny(w.zrodlo, w.p, repo.id, null); rysujSzczegoly(); } }, "Brak odpowiednika") : null,
+      k.jak === "reczne" || k.jak === "brak-recznie" ? el("button", { klasa: "przycisk maly", onclick: async () => { await ustawReczny(w.zrodlo, w.p, repo.id, undefined); rysujSzczegoly(); } }, "Automatycznie") : null));
+  }
+  if (p) stopka.append(el("button", { klasa: "przycisk maly", onclick: (e) => przelaczStany(art, repo.id, p, e.currentTarget) }, "Wszystkie stany pliku"));
+  art.append(stopka);
+  return { el: art, w: sw, h: sh };
 }
 
 async function przelaczStany(karta, repo, p, przycisk) {
@@ -436,50 +539,40 @@ async function przelaczStany(karta, repo, p, przycisk) {
   karta.querySelector("footer").before(box);
 }
 
-// ---------------------------------------------------------------- ręczny wybór odpowiednika
+// ---------------------------------------------------------------- ręczny wybór
 
-let wyborRepo = null;
-function otworzWybor(repo) {
-  wyborRepo = repo;
-  $("#wyborTytul").textContent = `Odpowiednik w ${repo.nazwa} dla „${stan.wybrany.n || stan.wybrany.id}”`;
-  $("#wyborSzukaj").value = stan.wybrany.n || "";
+let wybor = null;
+function otworzWybor(w, repo) {
+  wybor = { w, repo };
+  $("#wyborTytul").textContent = `Odpowiednik w ${repo.nazwa} dla „${w.p.n || w.p.id}”`;
+  $("#wyborSzukaj").value = w.p.n || "";
   rysujWybor();
   $("#oknoWybor").showModal();
   $("#wyborSzukaj").select();
 }
 
 function rysujWybor() {
-  const dane = stan.dane.get(wyborRepo.id);
+  const { w, repo } = wybor;
+  const dane = stan.dane.get(repo.id);
   const wyniki = szukaj(dane.przedmioty, $("#wyborSzukaj").value, "", 200);
   $("#wyborLista").replaceChildren(...wyniki.map((p) => {
     const c = el("canvas", { width: 32, height: 32 });
-    rysujMiniature(c, wyborRepo.id, p.s);
-    return el("li", { onclick: () => ustawRecznie(p.id) }, c, el("div", { klasa: "opis" }, el("b", {}, p.n || "(bez nazwy)"), el("small", {}, p.id)));
+    rysujMiniature(c, repo.id, p.s);
+    const o = ocen(w.p, p, ust.kryteria);
+    return el("li", { onclick: async () => { await ustawReczny(w.zrodlo, w.p, repo.id, p); $("#oknoWybor").close(); rysujSzczegoly(); } },
+      c, el("div", { klasa: "opis" }, el("b", {}, p.n || "(bez nazwy)"), el("small", {}, p.id)),
+      o.powody.length ? el("small", { klasa: "powody" }, o.powody.join(", ")) : null);
   }));
 }
-
-function ustawRecznie(wartosc) {
-  const k = kluczRecznych();
-  const r = ust.recznie[k] ||= {};
-  if (wartosc === undefined) delete r[wyborRepo.id];
-  else r[wyborRepo.id] = wartosc;
-  if (!Object.keys(r).length) delete ust.recznie[k];
-  zapisz();
-  $("#oknoWybor").close();
-  rysujKarty();
-}
-
 $("#wyborSzukaj").addEventListener("input", () => { clearTimeout(rysujWybor._t); rysujWybor._t = setTimeout(rysujWybor, 120); });
-$("#wyborAuto").addEventListener("click", () => ustawRecznie(undefined));
-$("#wyborBrak").addEventListener("click", () => ustawRecznie(null));
 $("#wyborZamknij").addEventListener("click", () => $("#oknoWybor").close());
 
-// ---------------------------------------------------------------- pasek narzędzi
+// ---------------------------------------------------------------- sterowanie
 
-function grupa(sel, atr, klucz, zamien = (x) => x) {
+function grupa(sel, atr, kl, zamien = (x) => x) {
   const przyciski = document.querySelectorAll(`${sel} button`);
-  const odswiez = () => przyciski.forEach((b) => b.classList.toggle("aktywny", zamien(b.dataset[atr]) === ust[klucz]));
-  przyciski.forEach((b) => b.addEventListener("click", () => { ust[klucz] = zamien(b.dataset[atr]); zapisz(); odswiez(); rysujKarty(); }));
+  const odswiez = () => przyciski.forEach((b) => b.classList.toggle("aktywny", zamien(b.dataset[atr]) === ust[kl]));
+  przyciski.forEach((b) => b.addEventListener("click", () => { ust[kl] = zamien(b.dataset[atr]); zapisz(); odswiez(); rysujSzczegoly(); }));
   odswiez();
 }
 grupa("#widoki", "widok", "widok");
@@ -490,7 +583,7 @@ $("#zoom").value = ust.zoom;
 $("#zoomWartosc").textContent = ust.zoom + "×";
 $("#zoom").addEventListener("input", (e) => {
   ust.zoom = +e.target.value; $("#zoomWartosc").textContent = ust.zoom + "×"; zapisz();
-  clearTimeout(rysujKarty._t); rysujKarty._t = setTimeout(rysujKarty, 60);
+  clearTimeout(rysujSzczegoly._t); rysujSzczegoly._t = setTimeout(rysujSzczegoly, 60);
 });
 
 function przelaczAnimacje() {
@@ -501,11 +594,43 @@ function przelaczAnimacje() {
 }
 $("#animacja").textContent = ust.anim ? "⏸ Animacja" : "▶ Animacja";
 $("#animacja").addEventListener("click", przelaczAnimacje);
-document.addEventListener("keydown", (e) => {
-  if (e.key === " " && !["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName) && !document.querySelector("dialog[open]")) {
-    e.preventDefault(); przelaczAnimacje();
-  }
-});
-window.addEventListener("hashchange", zHasha);
 
-odswiezRepa();
+document.addEventListener("keydown", (e) => {
+  if (!$("#szczegoly").open || $("#oknoWybor").open) return;
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+  if (e.key === " ") { e.preventDefault(); przelaczAnimacje(); }
+  if (e.key === "ArrowDown") { e.preventDefault(); przejdz(1); }
+  if (e.key === "ArrowUp") { e.preventDefault(); przejdz(-1); }
+});
+
+for (const [k, nazwa] of Object.entries(KRYTERIA)) {
+  const pole = el("input", { type: "checkbox" });
+  pole.checked = ust.kryteria[k];
+  pole.addEventListener("change", () => {
+    ust.kryteria[k] = pole.checked;
+    if (!Object.values(ust.kryteria).some(Boolean)) { ust.kryteria[k] = true; pole.checked = true; }
+    zapisz(); przelicz();
+  });
+  $("#kryteria").append(el("label", { klasa: "przelacznik" }, pole, nazwa));
+}
+
+$("#szukaj").addEventListener("input", () => { clearTimeout(przelicz._t); przelicz._t = setTimeout(przelicz, 200); });
+$("#kategoria").value = ust.kategoria;
+$("#kategoria").addEventListener("change", (e) => { ust.kategoria = e.target.value; zapisz(); przelicz(); });
+$("#zrodloWierszy").addEventListener("change", (e) => { ust.zrodloWierszy = e.target.value; zapisz(); przelicz(); });
+$("#skala").value = String(ust.skala);
+$("#skala").addEventListener("change", (e) => { ust.skala = +e.target.value; zapisz(); przelicz(); });
+$("#tloTabeli").value = ust.tloTabeli;
+$("#tloTabeli").addEventListener("change", (e) => { ust.tloTabeli = e.target.value; zapisz(); przelicz(); });
+$("#tylkoZOdp").checked = ust.tylkoZOdp;
+$("#tylkoZOdp").addEventListener("change", (e) => { ust.tylkoZOdp = e.target.checked; zapisz(); przelicz(); });
+
+// ---------------------------------------------------------------- start
+
+(async () => {
+  const [reguly, reczne] = await Promise.all([api.get("/api/sciezki"), api.get("/api/reczne")]);
+  ustawReguly(reguly);
+  stan.reczne = reczne && reczne.pary ? reczne : { pary: {} };
+  await odswiezRepa();
+  przelicz();
+})();
