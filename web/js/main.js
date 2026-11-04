@@ -3,6 +3,7 @@ import { KRYTERIA, PROG_PEWNE, PROG_MOZLIWE, przygotuj, propozycje, ocen, szukaj
 import * as Dzwieki from "./dzwieki.js";
 import { zrodlo, wykryj, pobierz, wyslij, eksportujPoprawki } from "./zrodlo.js";
 import { wczytajKategorie, przypiszSprite, kategorieSprite, kategorieDzwiekow } from "./kategorie.js";
+import { opisWidoku, otworzPomoc, OPIS_KRYTERIOW } from "./pomoc.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, wlasc = {}, ...dzieci) => {
@@ -354,6 +355,18 @@ function rysujKategorie() {
   }
   $("#listaKategorii").replaceChildren(...przyciski);
 
+  // co teraz widać – jednym-dwoma zdaniami
+  const nazwaKat = lista.find((k) => k.id === ust[kl])?.nazwa || "";
+  const repoDz = stan.repa.find((r) => r.id === $("#dzRepo").value)?.nazwa || "";
+  $("#opisWidoku").replaceChildren(el("span", { klasa: "ikona-info" }, "i"),
+    el("span", {}, opisWidoku({
+      zakladka: ust.zakladka, zapytanie: $("#szukaj").value.trim(), kategoria: nazwaKat, podgrupa: ust[kp],
+      zrodlo: stan.repa.find((r) => r.id === ust.zrodloWierszy)?.nazwa || "", tylkoZOdp: ust.tylkoZOdp,
+      kryteria: Object.entries(KRYTERIA).filter(([k]) => ust.kryteria[k]).map(([, n]) => n),
+      tryb: $("#dzTryb").value, repoDzwiekow: repoDz,
+    })),
+    el("button", { klasa: "link", onclick: () => otworzPomoc(ust.zakladka) }, "Więcej…"));
+
   // podgrupy wybranej kategorii
   const box = $("#podgrupy");
   if (!ust[kl] || l.pod.size < 2) { box.replaceChildren(); box.hidden = true; return; }
@@ -598,7 +611,13 @@ async function karta(w, repo) {
   const stopka = el("footer", {});
   if (wzor) stopka.append(el("span", { klasa: "jak wzor" }, "od tego przedmiotu zaczyna się wiersz"));
   else {
-    if (p) stopka.append(el("span", { klasa: "jak " + k.jak }, `${OPIS_JAK[k.jak]}: ${k.powody.join(", ")}`));
+    if (p) {
+      const pkt = k.jak === "reczne" ? "" : ` · ${Math.round(k.pkt)} pkt`;
+      stopka.append(el("span", {
+        klasa: "jak " + k.jak,
+        title: k.jak === "reczne" ? "Wybrane ręcznie – zapisane w poprawkach." : `Punkty za: ${k.powody.join(", ")}.\nOd 45 pkt dopasowanie jest pewne, od 25 możliwe. Szczegóły w „? Jak to działa”.`,
+      }, `${OPIS_JAK[k.jak]}: ${k.powody.join(", ")}${pkt}`));
+    }
     const prop = propozycje(w.p, dane, ust.kryteria, 5).filter((x) => x.p !== p);
     if (prop.length) {
       stopka.append(el("div", { klasa: "inne" }, el("small", {}, "Inne propozycje:"),
@@ -721,7 +740,7 @@ for (const [k, nazwa] of Object.entries(KRYTERIA)) {
     if (!Object.values(ust.kryteria).some(Boolean)) { ust.kryteria[k] = true; pole.checked = true; }
     zapisz(); przelicz();
   });
-  $("#kryteria").append(el("label", { klasa: "przelacznik" }, pole, nazwa));
+  $("#kryteria").append(el("label", { klasa: "przelacznik", title: OPIS_KRYTERIOW[k] }, pole, nazwa));
 }
 
 $("#szukaj").addEventListener("input", () => {
@@ -730,6 +749,7 @@ $("#szukaj").addEventListener("input", () => {
 });
 
 document.addEventListener("change", (e) => { if (e.target.matches("#dzTryb, #dzRepo")) rysujKategorie(); });
+$("#pomoc").addEventListener("click", () => otworzPomoc(ust.zakladka));
 
 // Zakładki: sprite'y i dźwięki
 window.__repoInfo = (id) => stan.dane.get(id);

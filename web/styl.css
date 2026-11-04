@@ -160,6 +160,25 @@ input[type="checkbox"] { accent-color: var(--akcent); margin: 0; }
   border-bottom: 1px solid var(--linia); max-height: 76px; overflow-y: auto;
 }
 #podgrupy[hidden] { display: none; }
+#opisWidoku {
+  display: flex; gap: 8px; align-items: flex-start; padding: 7px 12px;
+  border-bottom: 1px solid var(--linia); color: var(--szary); font-size: 12px; line-height: 1.45;
+}
+#opisWidoku:empty { display: none; }
+.ikona-info {
+  flex: none; width: 16px; height: 16px; border-radius: 50%; margin-top: 1px;
+  background: #233a57; color: var(--akcent); font: italic 700 11px/16px Georgia, serif; text-align: center;
+}
+button.link { background: none; border: 0; padding: 0; color: var(--akcent); cursor: pointer; font-size: 12px; white-space: nowrap; }
+button.link:hover { text-decoration: underline; }
+.przycisk.pomoc { color: var(--akcent); }
+.okno-pomocy { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 40px); }
+.okno-pomocy .okno { gap: 4px; }
+.sekcja-pomocy { padding: 8px 0; border-top: 1px solid var(--linia); }
+.sekcja-pomocy h3 { margin: 0 0 6px; font-size: 14px; color: var(--tekst); }
+.sekcja-pomocy p, .sekcja-pomocy li { color: #c3c8d2; font-size: 13px; line-height: 1.5; }
+.sekcja-pomocy ul, .sekcja-pomocy ol { margin: 4px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.sekcja-pomocy code { background: #111317; padding: 1px 4px; border-radius: 4px; }
 .pod {
   display: flex; gap: 5px; align-items: center; padding: 2px 9px; border-radius: 12px;
   border: 1px solid var(--linia); background: var(--panel2); cursor: pointer; font-size: 12px;
