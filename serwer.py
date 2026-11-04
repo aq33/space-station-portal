@@ -433,6 +433,8 @@ class Obsluga(BaseHTTPRequestHandler):
             return self._json([opis_repo(r) for r in wczytaj_liste()])
         if sciezka == "/api/propozycje":
             return self._json(propozycje())
+        if sciezka == "/dane/strona.json":
+            return self._json({"tryb": "lokalny"})   # strona sprawdza tym, czy działa online
         if sciezka == "/api/sciezki":
             return self._json(reguly_sciezek())
         if sciezka == "/api/reczne":

@@ -33,7 +33,9 @@ Serwer nasłuchuje na `127.0.0.1:8615` i sam otwiera przeglądarkę.
 
 ## Jak się tym posługiwać
 
-1. U góry wpisz, czego szukasz (`crowbar`, `captain`, `/obj/item/gun`).
+1. Wybierz kategorię w kolumnie po lewej (Narzędzia, Nakrycia głowy, Automaty…), a nad tabelą jej podgrupę (np. helmet, beret, hats).
+   Możesz też wpisać u góry, czego szukasz (`crowbar`, `captain`, `/obj/item/gun`). Liczby przy kategoriach pokazują, ile pasuje do wpisanego tekstu.
+   Kategorie są wspólne dla SS13 i SS14. Reguły są w `web/kategorie.json`: ścieżki typów SS13 i foldery prototypów SS14.
 2. Każdy wiersz tabeli to jeden przedmiot, każda kolumna to jedno repo. Kropka w rogu komórki mówi, jak pewne jest dopasowanie:
    zielona – pewne, żółta – możliwe, fioletowa – wybrane ręcznie. Kreska oznacza, że w tym repo nic nie pasuje.
    Pod sprite'em pojawia się nazwa, jeśli w tym repo przedmiot nazywa się inaczej.
@@ -48,7 +50,11 @@ Kliknięcie repo na pasku ukrywa jego kolumnę. Menu `⋯` w nagłówku kolumny:
 
 ## Dodawanie repo
 
-Przycisk **+ Dodaj repo**:
+**Online:** dopisz repo do [`strona.json`](strona.json), np. `{ "nazwa": "Monke", "url": "https://github.com/Monkestation/Monkestation2.0" }`
+(repo musi być publiczne, opcjonalnie `"galaz": "nazwa"`). Po zapisaniu zmiany CI w kilka minut przebuduje stronę.
+To samo wyjaśnia przycisk **+ Dodaj repo** na stronie.
+
+**Lokalnie** przycisk **+ Dodaj repo**:
 
 - **Z GitHuba**: wklej link, np. `https://github.com/tgstation/tgstation` albo `…/tree/nazwa-gałęzi`.
   Portal zrobi rzadki klon do folderu `repo/` z kodem, grafiką i dźwiękami (bez map, tgui i narzędzi).

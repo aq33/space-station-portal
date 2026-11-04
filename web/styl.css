@@ -136,6 +136,42 @@ input[type="checkbox"] { accent-color: var(--akcent); margin: 0; }
 .repo.ukryte b { text-decoration: line-through; }
 .repo.zle { border-color: var(--czerwony); }
 
+/* ---------------------------------------------------------------- kategorie (jak w edytorze) */
+
+#uklad { flex: 1; display: flex; min-height: 0; }
+#boczny {
+  width: 240px; flex: none; overflow-y: auto;
+  border-right: 1px solid var(--linia); background: var(--panel); padding: 6px 4px;
+}
+#listaKategorii { display: flex; flex-direction: column; gap: 1px; }
+.kat {
+  display: flex; align-items: center; gap: 8px; text-align: left;
+  padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer;
+}
+.kat:hover { background: var(--panel2); }
+.kat.aktywny { background: #2c4a6e; border-color: var(--akcent); }
+.kat canvas { width: 24px; height: 24px; image-rendering: pixelated; flex: none; }
+.kat .ikona-kat { width: 24px; text-align: center; color: var(--szary); flex: none; }
+.kat .nazwa { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.kat small { color: var(--szary); font-size: 11px; }
+#srodek { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#podgrupy {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px;
+  border-bottom: 1px solid var(--linia); max-height: 76px; overflow-y: auto;
+}
+#podgrupy[hidden] { display: none; }
+.pod {
+  display: flex; gap: 5px; align-items: center; padding: 2px 9px; border-radius: 12px;
+  border: 1px solid var(--linia); background: var(--panel2); cursor: pointer; font-size: 12px;
+}
+.pod small { color: var(--szary); font-size: 10px; }
+.pod:hover { border-color: var(--akcent); }
+.pod.aktywny { background: #2c4a6e; border-color: var(--akcent); }
+.kroki { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; color: var(--tekst); font-size: 13px; }
+.kroki pre { margin: 4px 0; padding: 6px 8px; background: #111317; border-radius: 6px; font-size: 12px; white-space: pre-wrap; }
+.kroki small { color: var(--szary); }
+.okno a { color: var(--akcent); }
+
 /* ---------------------------------------------------------------- tabela */
 
 #tabela { flex: 1; overflow: auto; }
@@ -369,4 +405,8 @@ span.tylko-dzwieki { display: flex; gap: 6px; align-items: center; color: var(--
 @media (max-width: 800px) {
   :root { --pierwsza: 140px; }
   #gora { gap: 8px; }
+  #uklad { flex-direction: column; }
+  #boczny { width: auto; max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--linia); }
+  #listaKategorii { flex-direction: row; flex-wrap: wrap; }
+  .kat .nazwa { flex: none; }
 }

@@ -25,18 +25,6 @@
     </select>
     <label id="dzRepoEtykieta">w <select id="dzRepo"></select></label>
   </span>
-  <select id="kategoria" class="tylko-sprite" title="Kategoria">
-    <option value="">Wszystko</option>
-    <option value="przedmioty">Przedmioty</option>
-    <option value="ubrania">Ubrania</option>
-    <option value="bronie">Bronie</option>
-    <option value="jedzenie">Jedzenie i napoje</option>
-    <option value="maszyny">Maszyny</option>
-    <option value="struktury">Struktury</option>
-    <option value="moby">Moby</option>
-    <option value="podlogi">Podłogi i ściany</option>
-    <option value="inne">Inne</option>
-  </select>
   <div id="kryteria" class="kryteria tylko-sprite" title="Po czym szukać odpowiedników w innych repo"><span>Porównuj po:</span></div>
   <details id="opcje" class="rozwijane tylko-sprite">
     <summary class="przycisk">Widok ▾</summary>
@@ -55,17 +43,24 @@
 
 <div id="repa"></div>
 
-<main id="tabela" class="tylko-sprite">
-  <div id="naglowkiTabeli" class="wiersz naglowki"></div>
-  <div id="wiersze"></div>
-  <div id="stopka"></div>
-</main>
-
-<main id="dzwieki" class="tylko-dzwieki tabela">
-  <div id="dzwiekiNaglowki" class="wiersz naglowki"></div>
-  <div id="dzwiekiWiersze"></div>
-  <div id="dzwiekiStopka" class="stopka"></div>
-</main>
+<div id="uklad">
+  <aside id="boczny">
+    <div id="listaKategorii"></div>
+  </aside>
+  <div id="srodek">
+    <div id="podgrupy"></div>
+    <main id="tabela" class="tylko-sprite">
+      <div id="naglowkiTabeli" class="wiersz naglowki"></div>
+      <div id="wiersze"></div>
+      <div id="stopka"></div>
+    </main>
+    <main id="dzwieki" class="tylko-dzwieki tabela">
+      <div id="dzwiekiNaglowki" class="wiersz naglowki"></div>
+      <div id="dzwiekiWiersze"></div>
+      <div id="dzwiekiStopka" class="stopka"></div>
+    </main>
+  </div>
+</div>
 
 <dialog id="szczegoly">
   <div class="szczegoly">

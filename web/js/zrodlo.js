@@ -11,8 +11,9 @@ const POPRAWKI = "portal:reczne:v1";
 export async function wykryj() {
   try {
     const r = await fetch("dane/strona.json", { cache: "no-store" });
-    if (r.ok) {
-      zrodlo.info = await r.json();
+    const j = r.ok ? await r.json() : null;
+    if (j && Array.isArray(j.repa)) {   // lokalny serwer odpowiada {"tryb": "lokalny"}
+      zrodlo.info = j;
       zrodlo.statyczny = true;
     }
   } catch { /* lokalny serwer */ }

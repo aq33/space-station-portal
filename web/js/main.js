@@ -2,6 +2,7 @@ import * as Sprite from "./sprite.js";
 import { KRYTERIA, PROG_PEWNE, PROG_MOZLIWE, przygotuj, propozycje, ocen, szukaj, ustawReguly } from "./dopasowanie.js";
 import * as Dzwieki from "./dzwieki.js";
 import { zrodlo, wykryj, pobierz, wyslij, eksportujPoprawki } from "./zrodlo.js";
+import { wczytajKategorie, przypiszSprite, kategorieSprite, kategorieDzwiekow } from "./kategorie.js";
 
 const $ = (s) => document.querySelector(s);
 const el = (tag, wlasc = {}, ...dzieci) => {
@@ -21,7 +22,7 @@ const ZAPIS = "porownywarka:v2";
 const domyslne = {
   kryteria: { wyglad: true, nazwa: true, opis: true, sciezka: true },
   widok: "s", kier: 0, zoom: 5, tlo: "szachownica", anim: true, ukryte: [],
-  kategoria: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "", zakladka: "sprite",
+  kategoria: "", podgrupa: "", dzKategoria: "", dzPodgrupa: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "", zakladka: "sprite",
 };
 let ust;
 try { ust = Object.assign({}, domyslne, JSON.parse(localStorage.getItem(ZAPIS)) || {}); } catch { ust = { ...domyslne }; }
@@ -65,6 +66,7 @@ async function wczytajIndeks(id) {
   try {
     const dane = await api.get(`/api/indeks/${id}`);
     przygotuj(dane);
+    for (const p of dane.przedmioty) przypiszSprite(p);
     stan.dane.set(id, dane);
   } catch (e) {
     console.warn("indeks", id, e);
@@ -97,11 +99,35 @@ function rysujRepa() {
   }
   if (!zrodlo.statyczny) box.append(el("button", { klasa: "przycisk glowny maly", onclick: otworzDodawanie }, "+ Dodaj repo"));
   else {
+    box.append(el("button", { klasa: "przycisk glowny maly", onclick: jakDodacOnline }, "+ Dodaj repo"));
     const kiedy = new Date(zrodlo.info.zbudowano).toLocaleString("pl", { dateStyle: "short", timeStyle: "short" });
     box.append(el("span", { klasa: "online", title: "Wersja online odświeża się sama co 6 godzin. Własne repo i gałęzie: uruchom Portal lokalnie (uruchom.bat)." },
       `Wersja online · dane z ${kiedy}`),
       el("button", { klasa: "przycisk maly", title: "Twoje ręczne poprawki zapisują się w tej przeglądarce. Pobierz je jako reczne.json, żeby dodać je do repo Portalu.", onclick: () => eksportujPoprawki(stan.reczne) }, "Pobierz moje poprawki"));
   }
+}
+
+// W wersji online repo dopisuje się do strona.json w repo Portalu (CI przebuduje stronę).
+function jakDodacOnline() {
+  const wlasciciel = location.hostname.split(".")[0];
+  const nazwa = location.pathname.split("/").filter(Boolean)[0] || "space-station-portal";
+  const repo = `https://github.com/${wlasciciel}/${nazwa}`;
+  const okno = el("dialog", {}, el("div", { klasa: "okno" },
+    el("h2", {}, "Jak dodać repo do wersji online"),
+    el("p", {}, "Wersja online pokazuje repo wpisane w pliku strona.json w repo Portalu. Po każdej zmianie tego pliku GitHub sam przebudowuje stronę (kilka minut)."),
+    el("ol", { klasa: "kroki" },
+      el("li", {}, "Otwórz ", el("a", { href: `${repo}/edit/main/strona.json`, target: "_blank", rel: "noopener" }, "strona.json do edycji na GitHubie"), "."),
+      el("li", {}, "Dopisz na liście nową linię, np.:", el("pre", {}, `{ "nazwa": "Monke", "url": "https://github.com/Monkestation/Monkestation2.0" },`),
+        el("small", {}, "Repo musi być publiczne. Można dodać \"galaz\": \"nazwa\", jeśli nie chodzi o domyślną gałąź.")),
+      el("li", {}, "Kliknij „Commit changes”. Bez uprawnień do zapisu GitHub sam zaproponuje Pull Request."),
+      el("li", {}, "Po kilku minutach nowa kolumna pojawi się na stronie. Postęp widać w ", el("a", { href: `${repo}/actions`, target: "_blank", rel: "noopener" }, "zakładce Actions"), ".")),
+    el("h3", {}, "Własne repo bez czekania"),
+    el("p", {}, "Wersja lokalna dodaje dowolne repo od razu: link z GitHuba, folder z dysku, własne gałęzie i niezacommitowane zmiany. ",
+      el("a", { href: repo, target: "_blank", rel: "noopener" }, "Pobierz Portal"), ", uruchom uruchom.bat i kliknij „+ Dodaj repo”."),
+    el("div", { klasa: "przyciski" }, el("button", { klasa: "przycisk", onclick: () => okno.close() }, "Zamknij"))));
+  okno.addEventListener("close", () => okno.remove());
+  document.body.append(okno);
+  okno.showModal();
 }
 
 function rysujZrodla() {
@@ -252,8 +278,10 @@ function* generujWiersze() {
   const zapytanie = $("#szukaj").value;
   const uzyte = new Set();
   for (const zr of zrodla) {
-    for (const p of szukaj(stan.dane.get(zr.id).przedmioty, zapytanie, ust.kategoria)) {
+    for (const p of szukaj(stan.dane.get(zr.id).przedmioty, zapytanie, "")) {
       if (uzyte.has(p)) continue;
+      if (ust.kategoria && p.kat !== ust.kategoria) continue;
+      if (ust.podgrupa && p.pod !== ust.podgrupa) continue;
       uzyte.add(p);
       const komorki = {};
       let ile = 0;
@@ -272,11 +300,78 @@ function* generujWiersze() {
   }
 }
 
+// ---------------------------------------------------------------- kategorie (kolumna po lewej)
+
+function liczSprite() {
+  const zapytanie = $("#szukaj").value;
+  const kat = new Map(), pod = new Map();
+  let suma = 0;
+  for (const r of widoczne()) {
+    for (const p of szukaj(stan.dane.get(r.id).przedmioty, zapytanie, "")) {
+      suma++;
+      kat.set(p.kat, (kat.get(p.kat) || 0) + 1);
+      if (p.kat === ust.kategoria) pod.set(p.pod, (pod.get(p.pod) || 0) + 1);
+    }
+  }
+  return { suma, kat, pod };
+}
+
+function ikonaKategorii(k) {
+  for (const id of k.ikona || []) {
+    for (const r of widoczne()) {
+      const p = stan.dane.get(r.id).m.poId.get(id);
+      if (p) return { repo: r.id, p };
+    }
+  }
+  return null;
+}
+
+function rysujKategorie() {
+  const dzwieki = ust.zakladka === "dzwieki";
+  const lista = dzwieki ? kategorieDzwiekow : kategorieSprite;
+  const kl = dzwieki ? "dzKategoria" : "kategoria";
+  const kp = dzwieki ? "dzPodgrupa" : "podgrupa";
+  if (ust[kl] && !lista.some((k) => k.id === ust[kl])) { ust[kl] = ""; ust[kp] = ""; }
+  const l = dzwieki ? Dzwieki.liczniki(ust.dzKategoria) : liczSprite();
+  const wybierz = (id) => {
+    ust[kl] = ust[kl] === id ? "" : id;
+    ust[kp] = "";
+    zapisz();
+    przelicz();
+  };
+  const przyciski = [el("button", { klasa: "kat" + (!ust[kl] ? " aktywny" : ""), onclick: () => wybierz("") },
+    el("span", { klasa: "ikona-kat" }, "★"), el("span", { klasa: "nazwa" }, "Wszystko"), el("small", {}, l.suma.toLocaleString("pl")))];
+  for (const k of lista) {
+    const ile = l.kat.get(k.id) || 0;
+    if (!ile && ust[kl] !== k.id) continue;
+    const ikona = dzwieki ? el("span", { klasa: "ikona-kat" }, "♪") : el("canvas", { width: 24, height: 24 });
+    if (!dzwieki) {
+      const ik = ikonaKategorii(k);
+      if (ik) rysujMiniature(ikona, ik.repo, ik.p.s, 24);
+    }
+    przyciski.push(el("button", { klasa: "kat" + (ust[kl] === k.id ? " aktywny" : ""), title: k.nazwa, onclick: () => wybierz(k.id) },
+      ikona, el("span", { klasa: "nazwa" }, k.nazwa), el("small", {}, ile.toLocaleString("pl"))));
+  }
+  $("#listaKategorii").replaceChildren(...przyciski);
+
+  // podgrupy wybranej kategorii
+  const box = $("#podgrupy");
+  if (!ust[kl] || l.pod.size < 2) { box.replaceChildren(); box.hidden = true; return; }
+  box.hidden = false;
+  const pod = [...l.pod.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
+  const chip = (nazwa, wartosc, ile) => el("button", {
+    klasa: "pod" + (ust[kp] === wartosc ? " aktywny" : ""),
+    onclick: () => { ust[kp] = ust[kp] === wartosc ? "" : wartosc; zapisz(); przelicz(); },
+  }, nazwa, ile !== undefined ? el("small", {}, String(ile)) : null);
+  box.replaceChildren(chip("wszystko", ""), ...pod.map(([n, ile]) => chip(n, n, ile)));
+}
+
 function przelicz() {
   if (ust.zakladka === "dzwieki") {
-    if (widoczne().length) Dzwieki.pokaz(widoczne());
+    if (widoczne().length) Dzwieki.pokaz(widoczne(), ust.dzKategoria, ust.dzPodgrupa).then(rysujKategorie);
     return;
   }
+  rysujKategorie();
   stan.wiersze = [];
   stan.generator = generujWiersze();
   stan.koniec = false;
@@ -631,8 +726,10 @@ for (const [k, nazwa] of Object.entries(KRYTERIA)) {
 
 $("#szukaj").addEventListener("input", () => {
   clearTimeout(przelicz._t);
-  przelicz._t = setTimeout(() => (ust.zakladka === "dzwieki" ? Dzwieki.szukajZmienione() : przelicz()), 200);
+  przelicz._t = setTimeout(() => (ust.zakladka === "dzwieki" ? (Dzwieki.szukajZmienione(), rysujKategorie()) : przelicz()), 200);
 });
+
+document.addEventListener("change", (e) => { if (e.target.matches("#dzTryb, #dzRepo")) rysujKategorie(); });
 
 // Zakładki: sprite'y i dźwięki
 window.__repoInfo = (id) => stan.dane.get(id);
@@ -653,8 +750,6 @@ document.querySelectorAll("#zakladki button").forEach((b) => b.addEventListener(
 document.body.classList.add("zakladka-" + ust.zakladka);
 document.querySelectorAll("#zakladki button").forEach((b) => b.classList.toggle("aktywny", b.dataset.zakladka === ust.zakladka));
 $("#szukaj").placeholder = SZUKAJ[ust.zakladka];
-$("#kategoria").value = ust.kategoria;
-$("#kategoria").addEventListener("change", (e) => { ust.kategoria = e.target.value; zapisz(); przelicz(); });
 $("#zrodloWierszy").addEventListener("change", (e) => { ust.zrodloWierszy = e.target.value; zapisz(); przelicz(); });
 $("#skala").value = String(ust.skala);
 $("#skala").addEventListener("change", (e) => { ust.skala = +e.target.value; zapisz(); przelicz(); });
@@ -666,7 +761,7 @@ $("#tylkoZOdp").addEventListener("change", (e) => { ust.tylkoZOdp = e.target.che
 // ---------------------------------------------------------------- start
 
 (async () => {
-  await wykryj();
+  await Promise.all([wykryj(), wczytajKategorie()]);
   document.body.classList.toggle("statyczny", zrodlo.statyczny);
   const [reguly, reczne] = await Promise.all([api.get("/api/sciezki"), api.get("/api/reczne")]);
   ustawReguly(reguly);

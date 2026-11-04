@@ -40,6 +40,23 @@ export function klucz(p) {
 const pien = (p) => p.toLowerCase().replace(/^.*\//, "").replace(/\.[a-z0-9]+$/, "").replace(/[^a-z0-9]/g, "");
 
 import { urlPliku, pobierz } from "./zrodlo.js";
+import { przypiszDzwiek } from "./kategorie.js";
+
+let filtrKat = "", filtrPod = "";
+let baza = [];   // pozycje po trybie i wyszukiwaniu, przed kategorią (do liczników w kolumnie kategorii)
+
+const katPozycji = (x) => (x.brak ? x.brak : x.wzor);
+
+// Liczniki kategorii i podgrup dla kolumny po lewej.
+export function liczniki(kat) {
+  const k = new Map(), pod = new Map();
+  for (const x of baza) {
+    const s = katPozycji(x);
+    k.set(s._kat, (k.get(s._kat) || 0) + 1);
+    if (s._kat === kat) pod.set(s._pod, (pod.get(s._pod) || 0) + 1);
+  }
+  return { suma: baza.length, kat: k, pod };
+}
 
 function rozmiar(b) {
   return b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
@@ -54,7 +71,8 @@ async function wczytaj(r) {
   if (dane.has(r.id)) return;
   if (!ladowane.has(r.id)) {
     ladowane.set(r.id, pobierz(`/api/dzwieki/${r.id}`).catch(() => ({ dzwieki: [], brakujace: [], brak: true })).then((d) => {
-      for (const s of d.dzwieki) { s._k = klucz(s.p); s._pien = pien(s.p); }
+      for (const s of d.dzwieki) { s._k = klucz(s.p); s._pien = pien(s.p); przypiszDzwiek(s); }
+      for (const b of d.brakujace || []) przypiszDzwiek(b);
       dane.set(r.id, d);
     }));
   }
@@ -93,8 +111,10 @@ function grupuj() {
   }
 }
 
-export async function pokaz(widoczneRepa) {
+export async function pokaz(widoczneRepa, kat = "", pod = "") {
   repa = widoczneRepa;
+  filtrKat = kat;
+  filtrPod = pod;
   document.documentElement.style.setProperty("--kolumny", repa.length);
   const wybor = $("#dzRepo");
   const stary = wybor.value;
@@ -126,6 +146,8 @@ function filtruj() {
       return true;
     });
   }
+  baza = lista;
+  if (filtrKat) lista = lista.filter((x) => katPozycji(x)._kat === filtrKat && (!filtrPod || katPozycji(x)._pod === filtrPod));
   pokazane = 0;
   rysujNaglowki(tryb);
   $("#dzwiekiWiersze").replaceChildren();
