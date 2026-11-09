@@ -27,10 +27,21 @@ const TRYBY_DZWIEKOW = {
   brakujace: (r) => `Miejsca w kodzie ${r}, które odwołują się do pliku dźwięku, którego w repo nie ma: literówka, usunięty albo przeniesiony plik.`,
 };
 
+const TRYBY_HUD = {
+  wszystkie: () => "Wszystkie ikony interfejsu z widocznych repo: umiejętności, przyciski HUD, alerty, menu radialne i znaczniki. Ta sama ikona z różnych repo leży w jednym wierszu. Łączę je po identycznych pikselach, potem po tej samej nazwie stanu w tej samej kategorii, a na końcu po podobnym wyglądzie.",
+  nowe: (r) => `Ikony z ${r}, których nie ma w żadnym innym widocznym repo: ani identycznej, ani o tej samej nazwie, ani podobnej z wyglądu.`,
+  rozne: () => "Ikony, które są w kilku repo, ale wyglądają inaczej. Żółta kropka to ta sama nazwa stanu z innym rysunkiem, fioletowa to podobny wygląd pod inną nazwą, zielona to ikona identyczna.",
+  wspolne: () => "Ikony, które mają odpowiednik we wszystkich widocznych repo.",
+};
+
 // Jedno-dwa zdania o tym, co teraz widać.
 export function opisWidoku(s) {
   const tekst = [];
-  if (s.zakladka === "dzwieki") {
+  if (s.zakladka === "hud") {
+    tekst.push(TRYBY_HUD[s.trybHud]?.(`repo ${s.repoHud}`) ?? "");
+    if (s.kategoria) tekst.push(`Kategoria: ${s.kategoria}${s.podgrupa ? " → plik " + s.podgrupa : ""}.`);
+    if (s.zapytanie) tekst.push(`Nazwa stanu albo plik musi zawierać wszystkie słowa z „${s.zapytanie}”.`);
+  } else if (s.zakladka === "dzwieki") {
     tekst.push(TRYBY_DZWIEKOW[s.tryb]?.(`repo ${s.repoDzwiekow}`) ?? "");
     if (s.kategoria) tekst.push(`Kategoria: ${s.kategoria}${s.podgrupa ? " → " + s.podgrupa : ""} (pierwszy folder w ścieżce dźwięku).`);
     if (s.zapytanie) tekst.push(`Ścieżka pliku musi zawierać wszystkie słowa z „${s.zapytanie}”.`);
@@ -97,9 +108,29 @@ export function otworzPomoc(zakladka) {
       p("Ścieżek składanych w kodzie (np. \"sound/voice/[name].ogg\" albo pick() z listy budowanej w pętli) Portal nie widzi. Taki plik może więc wyglądać na nieużywany."),
     ),
   ];
+  const hud = [
+    sekcja("Co tu jest",
+      p("Ikony interfejsu gracza: przyciski umiejętności i akcji, przyciski i style HUD (screen_*, ekwipunek, intencje), alerty, menu radialne, znaczniki nad głowami (ochrona, medycyna, antagoniści) i emotki."),
+      p("SS13: wszystkie stany z plików .dmi w folderach hud, actions, ui i z plików screen_*, radial*, *alert*. SS14: wszystkie stany z katalogów .rsi w Resources/Textures/Interface. Ikony większe niż 96 px (pełnoekranowe nakładki, mapy) są pominięte."),
+    ),
+    sekcja("Szukanie i kategorie",
+      p("Wpisane słowa muszą wystąpić w nazwie stanu albo ścieżce pliku, np. ", el("code", {}, "resist"), ", ", el("code", {}, "health"), ", ", el("code", {}, "screen_midnight"), "."),
+      p("Kategoria wynika z nazwy pliku albo folderu (actions → Umiejętności, screen_* → Przyciski i style, radial → Menu radialne…). Podgrupa to plik, np. actions_spells albo screen_midnight."),
+    ),
+    sekcja("Jak powstaje wiersz",
+      p("Ikony nie mają typów jak przedmioty, więc tę samą ikonę z różnych repo łączę po kolei:"),
+      el("ol", {}, li("identyczne piksele pierwszej klatki (zielona kropka),"), li("ta sama nazwa stanu w tej samej kategorii, np. „resist” (żółta),"), li("podobny wygląd w tej samej kategorii: zbliżony kształt i jasność, podobny kolor (fioletowa).")),
+      p("Ogólne nazwy, jak „icon”, „base”, „background” albo same cyfry, łączę tylko w obrębie pliku o tej samej nazwie, bo inaczej pasowałyby do wszystkiego. W SS14 ikona o stanie „icon” bierze nazwę od katalogu .rsi."),
+    ),
+    sekcja("Widoki",
+      el("ul", {}, ...Object.entries(TRYBY_HUD).map(([k, f]) => li(el("b", {}, { wszystkie: "Wszystkie", nowe: "Nowe", rozne: "Różne wersje", wspolne: "Są we wszystkich" }[k] + ": "), f("wybranego repo")))),
+      p("Kliknij wiersz, żeby zobaczyć ikony w powiększeniu, z animacją i we wszystkich kierunkach, z plikiem i nazwą stanu."),
+    ),
+  ];
+  const tytuly = { sprite: "Jak działa porównywanie sprite'ów", dzwieki: "Jak działa porównywanie dźwięków", hud: "Jak działa porównywanie ikon HUD" };
   const okno = el("dialog", { klasa: "okno-pomocy" }, el("div", { klasa: "okno" },
-    el("h2", {}, zakladka === "dzwieki" ? "Jak działa porównywanie dźwięków" : "Jak działa porównywanie sprite'ów"),
-    ...(zakladka === "dzwieki" ? dzwieki : sprite),
+    el("h2", {}, tytuly[zakladka] || tytuly.sprite),
+    ...(zakladka === "dzwieki" ? dzwieki : zakladka === "hud" ? hud : sprite),
     el("div", { klasa: "przyciski" }, el("button", { klasa: "przycisk", onclick: () => okno.close() }, "Zamknij"))));
   okno.addEventListener("close", () => okno.remove());
   document.body.append(okno);

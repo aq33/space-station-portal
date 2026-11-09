@@ -45,7 +45,7 @@ export async function pobierz(api) {
     const lokalne = poprawkiLokalne();
     return lokalne ? { pary: { ...wspolne.pary, ...lokalne.pary } } : wspolne;
   }
-  const m = api.match(/^\/api\/(indeks|dzwieki)\/(\w+)$/);
+  const m = api.match(/^\/api\/(indeks|dzwieki|hud)\/(\w+)$/);
   if (m) {
     const r = await fetch(`dane/${m[1]}-${m[2]}.json`);
     if (!r.ok) throw new Error(`${r.status} ${api}`);

@@ -376,12 +376,17 @@ label.grupa { gap: 6px; color: var(--szary); }
 
 /* ---------------------------------------------------------------- zakładki i dźwięki */
 
-body.zakladka-sprite .tylko-dzwieki, body.zakladka-dzwieki .tylko-sprite { display: none !important; }
+body:not(.zakladka-sprite) .tylko-sprite,
+body:not(.zakladka-dzwieki) .tylko-dzwieki,
+body:not(.zakladka-hud) .tylko-hud { display: none !important; }
 #zakladki button { padding: 5px 14px; }
-span.tylko-dzwieki { display: flex; gap: 6px; align-items: center; color: var(--szary); font-size: 13px; }
-#dzTryb { max-width: 260px; }
-#dzRepoEtykieta { display: flex; gap: 6px; align-items: center; }
-#dzRepoEtykieta[hidden] { display: none; }
+span.tylko-dzwieki, span.tylko-hud { display: flex; gap: 6px; align-items: center; color: var(--szary); font-size: 13px; }
+#dzTryb, #hudTryb { max-width: 260px; }
+#dzRepoEtykieta, #hudRepoEtykieta { display: flex; gap: 6px; align-items: center; }
+#dzRepoEtykieta[hidden], #hudRepoEtykieta[hidden] { display: none; }
+.wiersz.hud.otwarty { background: #20242c; }
+.scena-hud { display: flex; gap: 6px; justify-content: center; padding: 8px; border-radius: 8px; margin-top: 6px; }
+.scena-hud canvas { width: 128px; height: 128px; image-rendering: pixelated; }
 .tabela { flex: 1; overflow: auto; }
 .stopka { padding: 16px; text-align: center; color: var(--szary); }
 

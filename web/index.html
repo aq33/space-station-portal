@@ -12,6 +12,7 @@
   <nav id="zakladki" class="grupa">
     <button data-zakladka="sprite" class="aktywny">Sprite'y</button>
     <button data-zakladka="dzwieki">Dźwięki</button>
+    <button data-zakladka="hud">HUD</button>
   </nav>
   <input id="szukaj" type="search" placeholder="Szukaj przedmiotu, np. crowbar, captain, /obj/item/gun" autocomplete="off" autofocus>
   <span class="tylko-dzwieki">
@@ -24,6 +25,18 @@
       <option value="brakujace">Brakujące pliki (kod odwołuje się do nieistniejącego)</option>
     </select>
     <label id="dzRepoEtykieta">w <select id="dzRepo"></select></label>
+  </span>
+  <span class="tylko-hud">
+    <select id="hudTryb" title="Które ikony pokazać">
+      <option value="wszystkie">Wszystkie ikony</option>
+      <option value="nowe">Nowe – tylko w jednym repo</option>
+      <option value="rozne">Różne wersje tej samej ikony</option>
+      <option value="wspolne">Są we wszystkich repo</option>
+    </select>
+    <label id="hudRepoEtykieta">w <select id="hudRepo"></select></label>
+    <select id="hudSkala" title="Rozmiar ikon">
+      <option value="1">mały (1×)</option><option value="2" selected>średni (2×)</option><option value="3">duży (3×)</option>
+    </select>
   </span>
   <div id="kryteria" class="kryteria tylko-sprite" title="Po czym szukać odpowiedników w innych repo"><span>Porównuj po:</span></div>
   <details id="opcje" class="rozwijane tylko-sprite">
@@ -60,6 +73,11 @@
       <div id="dzwiekiNaglowki" class="wiersz naglowki"></div>
       <div id="dzwiekiWiersze"></div>
       <div id="dzwiekiStopka" class="stopka"></div>
+    </main>
+    <main id="hud" class="tylko-hud tabela">
+      <div id="hudNaglowki" class="wiersz naglowki"></div>
+      <div id="hudWiersze"></div>
+      <div id="hudStopka" class="stopka"></div>
     </main>
   </div>
 </div>

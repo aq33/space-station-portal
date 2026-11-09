@@ -4,6 +4,7 @@ Strona do porównywania serwerów Space Station 13 i 14 między sobą:
 
 - **Sprite'y** – ten sam przedmiot z kilku repozytoriów obok siebie, z animacją, w rękach i na postaci.
 - **Dźwięki** – te same dźwięki w różnych repo, nowe dźwięki danego serwera i miejsca w kodzie, gdzie ich używa.
+- **HUD** – ikony interfejsu: umiejętności i akcje, przyciski i style HUD, alerty, menu radialne, znaczniki nad głowami.
 
 Działa z repo SS13 (BYOND: kod DM, `.dmi`, `sound/`) i SS14 (RobustToolbox: prototypy YAML, `.rsi`, `Resources/Audio`).
 
@@ -76,6 +77,17 @@ Każdy kandydat dostaje punkty za wszystkie włączone kryteria naraz:
 | ścieżka | 40 za tę samą, do 8 za wspólne człony | ścieżka typu sprowadzona regułami UpdatePaths (`sciezki.py`) w obie strony, bez `/weapon` i `/device` |
 
 Do tego +4 za tę samą kategorię. Od 45 punktów dopasowanie jest „pewne”, od 25 „możliwe”.
+
+## HUD
+
+Zakładka **HUD**: wiersz to jedna ikona interfejsu, kolumna to repo. Kliknięcie wiersza pokazuje ikony w powiększeniu, z animacją i we wszystkich kierunkach.
+
+Skąd ikony (`hud.py`): w SS13 wszystkie stany z plików `.dmi` w folderach `hud`, `actions`, `ui` i z plików `screen_*`, `radial*`, `*alert*`, a w SS14 z katalogów `.rsi` w `Resources/Textures/Interface`. Ikony większe niż 96 px (pełnoekranowe nakładki) są pominięte.
+Kategorie: umiejętności i akcje, przyciski i style HUD, alerty, menu radialne, znaczniki, emotki. Podgrupa to plik (np. `actions_spells`, `screen_midnight`).
+
+Tę samą ikonę z różnych repo łączę po identycznych pikselach (zielona kropka), potem po tej samej nazwie stanu w tej samej kategorii (żółta), a na końcu po podobnym wyglądzie (fioletowa).
+Przyciski HUD łączę tylko w obrębie stylu (midnight z midnight), bo każdy styl ma te same nazwy stanów.
+Widoki: wszystkie, nowe (tylko w jednym repo), różne wersje i ikony obecne we wszystkich repo.
 
 ## Dźwięki
 

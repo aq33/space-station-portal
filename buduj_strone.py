@@ -16,6 +16,7 @@ import sys
 import time
 
 import dzwieki
+import hud
 import indeks_ss13
 import indeks_ss14
 import sciezki
@@ -86,6 +87,7 @@ def main():
             indeks["github"] = url
             zapisz(os.path.join(dane_dir, "indeks-%s.json" % rid), indeks)
             zapisz(os.path.join(dane_dir, "dzwieki-%s.json" % rid), dzwieki.zbuduj(cel, rodzaj, postep))
+            zapisz(os.path.join(dane_dir, "hud-%s.json" % rid), hud.zbuduj(cel, rodzaj, postep))
             if rodzaj == "ss13":
                 reguly.extend(sciezki.reguly_repo(cel))
             repa.append({

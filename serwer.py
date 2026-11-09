@@ -28,6 +28,7 @@ from urllib.parse import unquote, urlparse
 
 import dzwieki
 import ekstraktor
+import hud
 import indeks_ss13
 import indeks_ss14
 import obraz
@@ -107,6 +108,10 @@ def plik_dzwiekow(rid):
     return os.path.join(DANE, "dzwieki-%s.json.gz" % rid)
 
 
+def plik_hud(rid):
+    return os.path.join(DANE, "hud-%s.json.gz" % rid)
+
+
 def adres_github(repo):
     """https://github.com/właściciel/repo (do linków „pokaż w kodzie”) albo None.
 
@@ -159,13 +164,13 @@ def sha_na_githubie(repo):
 def odcisk(repo):
     """Wersja kodu + wersja indeksera: zmiana któregoś unieważnia zapisany indeks."""
     g = wersja_git(repo["sciezka"])
-    narzedzia = max(os.path.getmtime(m.__file__) for m in (ekstraktor, indeks_ss13, indeks_ss14, obraz, dzwieki))
+    narzedzia = max(os.path.getmtime(m.__file__) for m in (ekstraktor, indeks_ss13, indeks_ss14, obraz, dzwieki, hud))
     return "%s|%d|%d" % (g["sha"] if g else "brak-git", int(narzedzia), WERSJA_INDEKSU)
 
 
 def aktualny(repo):
     p = plik_indeksu(repo["id"])
-    if not os.path.exists(p) or not os.path.exists(plik_dzwiekow(repo["id"])):
+    if not os.path.exists(p) or not os.path.exists(plik_dzwiekow(repo["id"])) or not os.path.exists(plik_hud(repo["id"])):
         return False
     try:
         with gzip.open(p, "rt", encoding="utf-8") as f:
@@ -196,6 +201,9 @@ def buduj(repo):
         dz = dzwieki.zbuduj(repo["sciezka"], rodzaj, postep)
         with gzip.open(plik_dzwiekow(rid), "wt", encoding="utf-8", compresslevel=6) as f:
             f.write(json.dumps(dz, ensure_ascii=False, separators=(",", ":")))
+        ikony = hud.zbuduj(repo["sciezka"], rodzaj, postep)
+        with gzip.open(plik_hud(rid), "wt", encoding="utf-8", compresslevel=6) as f:
+            f.write(json.dumps(ikony, ensure_ascii=False, separators=(",", ":")))
         tymczasowy = plik_indeksu(rid) + ".tmp"
         # Pierwsza linia to nagłówek z odciskiem – da się go przeczytać bez całego pliku.
         with gzip.open(tymczasowy, "wt", encoding="utf-8", compresslevel=6) as f:
@@ -439,10 +447,11 @@ class Obsluga(BaseHTTPRequestHandler):
             return self._json(reguly_sciezek())
         if sciezka == "/api/reczne":
             return self._json(wczytaj_reczne())
-        if sciezka.startswith("/api/dzwieki/"):
-            p = plik_dzwiekow(sciezka.rsplit("/", 1)[1])
+        if sciezka.startswith(("/api/dzwieki/", "/api/hud/")):
+            rid = sciezka.rsplit("/", 1)[1]
+            p = plik_hud(rid) if sciezka.startswith("/api/hud/") else plik_dzwiekow(rid)
             if not os.path.exists(p):
-                return self._json({"blad": "brak indeksu dźwięków"}, 404)
+                return self._json({"blad": "brak indeksu"}, 404)
             with open(p, "rb") as f:
                 return self._wyslij(200, f.read(), naglowki={"Content-Encoding": "gzip", "Cache-Control": "no-store"})
         if sciezka.startswith("/api/indeks/"):
@@ -560,6 +569,7 @@ class Obsluga(BaseHTTPRequestHandler):
             try:
                 os.remove(plik_indeksu(str(dane.get("id"))))
                 os.remove(plik_dzwiekow(str(dane.get("id"))))
+                os.remove(plik_hud(str(dane.get("id"))))
             except OSError:
                 pass
             return self._json({"ok": True})

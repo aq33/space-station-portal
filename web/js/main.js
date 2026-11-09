@@ -1,6 +1,7 @@
 import * as Sprite from "./sprite.js";
 import { KRYTERIA, PROG_PEWNE, PROG_MOZLIWE, przygotuj, propozycje, ocen, szukaj, ustawReguly } from "./dopasowanie.js";
 import * as Dzwieki from "./dzwieki.js";
+import * as Hud from "./hud.js";
 import { zrodlo, wykryj, pobierz, wyslij, eksportujPoprawki } from "./zrodlo.js";
 import { wczytajKategorie, przypiszSprite, kategorieSprite, kategorieDzwiekow } from "./kategorie.js";
 import { opisWidoku, otworzPomoc, OPIS_KRYTERIOW } from "./pomoc.js";
@@ -23,7 +24,7 @@ const ZAPIS = "porownywarka:v2";
 const domyslne = {
   kryteria: { wyglad: true, nazwa: true, opis: true, sciezka: true },
   widok: "s", kier: 0, zoom: 5, tlo: "szachownica", anim: true, ukryte: [],
-  kategoria: "", podgrupa: "", dzKategoria: "", dzPodgrupa: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "", zakladka: "sprite",
+  kategoria: "", podgrupa: "", dzKategoria: "", dzPodgrupa: "", hudKategoria: "", hudPodgrupa: "", skala: 2, tloTabeli: "szachownica", tylkoZOdp: false, zrodloWierszy: "", zakladka: "sprite",
 };
 let ust;
 try { ust = Object.assign({}, domyslne, JSON.parse(localStorage.getItem(ZAPIS)) || {}); } catch { ust = { ...domyslne }; }
@@ -328,12 +329,13 @@ function ikonaKategorii(k) {
 }
 
 function rysujKategorie() {
-  const dzwieki = ust.zakladka === "dzwieki";
-  const lista = dzwieki ? kategorieDzwiekow : kategorieSprite;
-  const kl = dzwieki ? "dzKategoria" : "kategoria";
-  const kp = dzwieki ? "dzPodgrupa" : "podgrupa";
+  const z = ust.zakladka;
+  const dzwieki = z !== "sprite";   // dźwięki i HUD: kategorie bez ikonek sprite'ów
+  const lista = z === "dzwieki" ? kategorieDzwiekow : z === "hud" ? Hud.KATEGORIE : kategorieSprite;
+  const kl = z === "dzwieki" ? "dzKategoria" : z === "hud" ? "hudKategoria" : "kategoria";
+  const kp = z === "dzwieki" ? "dzPodgrupa" : z === "hud" ? "hudPodgrupa" : "podgrupa";
   if (ust[kl] && !lista.some((k) => k.id === ust[kl])) { ust[kl] = ""; ust[kp] = ""; }
-  const l = dzwieki ? Dzwieki.liczniki(ust.dzKategoria) : liczSprite();
+  const l = z === "dzwieki" ? Dzwieki.liczniki(ust.dzKategoria) : z === "hud" ? Hud.liczniki(ust.hudKategoria) : liczSprite();
   const wybierz = (id) => {
     ust[kl] = ust[kl] === id ? "" : id;
     ust[kp] = "";
@@ -345,7 +347,7 @@ function rysujKategorie() {
   for (const k of lista) {
     const ile = l.kat.get(k.id) || 0;
     if (!ile && ust[kl] !== k.id) continue;
-    const ikona = dzwieki ? el("span", { klasa: "ikona-kat" }, "♪") : el("canvas", { width: 24, height: 24 });
+    const ikona = dzwieki ? el("span", { klasa: "ikona-kat" }, z === "hud" ? "▣" : "♪") : el("canvas", { width: 24, height: 24 });
     if (!dzwieki) {
       const ik = ikonaKategorii(k);
       if (ik) rysujMiniature(ikona, ik.repo, ik.p.s, 24);
@@ -364,6 +366,7 @@ function rysujKategorie() {
       zrodlo: stan.repa.find((r) => r.id === ust.zrodloWierszy)?.nazwa || "", tylkoZOdp: ust.tylkoZOdp,
       kryteria: Object.entries(KRYTERIA).filter(([k]) => ust.kryteria[k]).map(([, n]) => n),
       tryb: $("#dzTryb").value, repoDzwiekow: repoDz,
+      trybHud: $("#hudTryb").value, repoHud: stan.repa.find((r) => r.id === $("#hudRepo").value)?.nazwa || "",
     })),
     el("button", { klasa: "link", onclick: () => otworzPomoc(ust.zakladka) }, "Więcej…"));
 
@@ -382,6 +385,10 @@ function rysujKategorie() {
 function przelicz() {
   if (ust.zakladka === "dzwieki") {
     if (widoczne().length) Dzwieki.pokaz(widoczne(), ust.dzKategoria, ust.dzPodgrupa).then(rysujKategorie);
+    return;
+  }
+  if (ust.zakladka === "hud") {
+    if (widoczne().length) Hud.pokaz(widoczne(), ust.hudKategoria, ust.hudPodgrupa, +$("#hudSkala").value).then(rysujKategorie);
     return;
   }
   rysujKategorie();
@@ -745,18 +752,29 @@ for (const [k, nazwa] of Object.entries(KRYTERIA)) {
 
 $("#szukaj").addEventListener("input", () => {
   clearTimeout(przelicz._t);
-  przelicz._t = setTimeout(() => (ust.zakladka === "dzwieki" ? (Dzwieki.szukajZmienione(), rysujKategorie()) : przelicz()), 200);
+  przelicz._t = setTimeout(() => {
+    if (ust.zakladka === "dzwieki") { Dzwieki.szukajZmienione(); rysujKategorie(); }
+    else if (ust.zakladka === "hud") { Hud.szukajZmienione(); rysujKategorie(); }
+    else przelicz();
+  }, 200);
 });
 
-document.addEventListener("change", (e) => { if (e.target.matches("#dzTryb, #dzRepo")) rysujKategorie(); });
+document.addEventListener("change", (e) => {
+  if (e.target.matches("#dzTryb, #dzRepo")) rysujKategorie();
+  if (e.target.matches("#hudTryb, #hudRepo, #hudSkala")) przelicz();
+});
 $("#pomoc").addEventListener("click", () => otworzPomoc(ust.zakladka));
 
 // Zakładki: sprite'y i dźwięki
 window.__repoInfo = (id) => stan.dane.get(id);
-const SZUKAJ = { sprite: "Szukaj przedmiotu, np. crowbar, captain, /obj/item/gun", dzwieki: "Szukaj dźwięku, np. airlock, gunshot, weapons/laser" };
+const SZUKAJ = {
+  sprite: "Szukaj przedmiotu, np. crowbar, captain, /obj/item/gun",
+  dzwieki: "Szukaj dźwięku, np. airlock, gunshot, weapons/laser",
+  hud: "Szukaj ikony, np. resist, health, fireball, act_equip",
+};
 function ustawZakladke(z) {
   ust.zakladka = z; zapisz();
-  document.body.classList.remove("zakladka-sprite", "zakladka-dzwieki");
+  document.body.classList.remove("zakladka-sprite", "zakladka-dzwieki", "zakladka-hud");
   document.body.classList.add("zakladka-" + z);
   document.querySelectorAll("#zakladki button").forEach((b) => b.classList.toggle("aktywny", b.dataset.zakladka === z));
   $("#szukaj").placeholder = SZUKAJ[z];
